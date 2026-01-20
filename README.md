@@ -12,6 +12,7 @@ The **Personal Health Butler** is an AI-powered nutrition assistant that leverag
 **Course**: AI Graduate Certificate Capstone (2026)  
 **Duration**: 14 Weeks
 **Repository**: [GitHub](https://github.com/kevinhust/AIG200Capstone)
+**Agent Framework**: [Antigravity Template](docs/framework/en/README.md)
 
 ---
 

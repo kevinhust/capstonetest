@@ -29,6 +29,12 @@ venv/
 ENV/
 env/
 .venv/
+capstoneenv/
+
+# Agent Runtime & Outputs
+artifacts/
+agent_memory.json
+src/agent_memory.json
 
 # IDE
 .idea/
