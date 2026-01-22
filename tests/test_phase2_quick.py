@@ -9,9 +9,9 @@ logging.basicConfig(level=logging.INFO)
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 sys.path.append(str(PROJECT_ROOT))
 
-from health_butler.tools.vision_tool import VisionTool
-from health_butler.tools.rag_tool import RagTool
-from health_butler.scripts.ingest_usda import download_usda_sample, process_and_index
+from health_butler.cv_food_rec.vision_tool import VisionTool
+from health_butler.data_rag.rag_tool import RagTool
+from health_butler.data_rag.ingest_usda import download_usda_sample, process_and_index
 
 def test_pipeline():
     print("=== Testing Phase 2 Core Capabilities ===")

@@ -5,23 +5,20 @@ import sys
 # Add project root to sys.path to allow importing from health_butler
 sys.path.append(os.getcwd())
 
-from health_butler.tools.rag_tool import RagTool
-from health_butler.tools.vision_tool import VisionTool
-from health_butler.agents.nutrition_agent import NutritionAgent
-from health_butler.agents.fitness_agent import FitnessAgent
-from health_butler.agents.coordinator_agent import CoordinatorAgent
+from health_butler.data_rag.rag_tool import RagTool
+from health_butler.cv_food_rec.vision_tool import VisionTool
+from health_butler.agents.nutrition.nutrition_agent import NutritionAgent
+from health_butler.agents.fitness.fitness_agent import FitnessAgent
+from health_butler.coordinator.coordinator_agent import CoordinatorAgent
 from health_butler.main import HealthSwarmOrchestrator
 
 def test_rag_tool():
     """Verify RAG tool query."""
     tool = RagTool()
-    # Ensure KB is populated (assuming ingestion script ran)
-    if not tool.knowledge_base:
-        pass
     
     # Add dummy doc if empty to test search logic
-    if not tool.knowledge_base:
-        tool.add_documents([{"text": "Chicken breast is rich in protein", "metadata": {}}])
+    if tool.collection.count() == 0:
+        tool.add_documents([{"text": "Chicken breast is rich in protein", "metadata": {}, "id": "test_1"}])
     
     # Use 'chicken' as verified in previous fix
     results = tool.query("chicken")
