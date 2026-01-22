@@ -10,7 +10,6 @@ annotated-types
 anyio
 appdirs==1.4.4
 applaunchservices
-appnope
 appscript
 archspec
 argon2-cffi
@@ -245,10 +244,6 @@ pylint
 pylint-venv
 pyls-spyder==0.4.0
 PyNaCl
-pyobjc-core
-pyobjc-framework-Cocoa
-pyobjc-framework-CoreServices
-pyobjc-framework-FSEvents
 pyodbc
 pyOpenSSL
 pyparsing
