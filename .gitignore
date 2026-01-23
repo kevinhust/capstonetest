@@ -1,3 +1,4 @@
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]
@@ -29,6 +30,15 @@ venv/
 ENV/
 env/
 .venv/
+capstoneenv/
+
+# Agent Runtime & Outputs
+artifacts/
+agent_memory.json
+src/agent_memory.json
+.agent/
+.antigravity/
+.context/
 
 # IDE
 .idea/
@@ -84,3 +94,10 @@ coverage.xml
 
 # Archive
 archive/
+data/chroma_db/
+
+# Temporary PPT Generation
+milestone1_ppt/
+
+# Project Governance (Internal)
+docs/project-governance/
