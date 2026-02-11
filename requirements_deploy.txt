@@ -1,0 +1,36 @@
+# Production dependencies for Personal Health Butler Discord Bot
+# Deployed to Google Cloud Run
+
+# Core Discord
+discord.py==2.6.4
+
+# AI/ML Libraries
+google-genai==1.59.0
+torch==2.6.0
+torchvision==0.21.0
+transformers==4.50.0
+safetensors==0.7.0
+sentence-transformers==3.0.1
+chromadb==0.6.3
+faiss-cpu==1.9.0
+Pillow==11.1.0
+
+# Data & Database
+SQLAlchemy==2.0.40
+numpy==1.26.4
+pandas==2.2.3
+
+# HTTP & API
+requests==2.32.3
+httpx==0.28.1
+aiohttp==3.11.15
+
+# Environment & Config
+python-dotenv==1.0.1
+pydantic==2.10.6
+pydantic-settings==2.8.1
+
+# Utilities
+python-dateutil==2.9.0
+typing-extensions==4.12.2
+pytz==2024.2
