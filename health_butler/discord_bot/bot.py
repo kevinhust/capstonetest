@@ -28,6 +28,11 @@ logger = logging.getLogger(__name__)
 DISCORD_TOKEN = os.getenv("DISCORD_TOKEN")
 DISCORD_ACTIVITY = os.getenv("DISCORD_ACTIVITY", "Helping with nutrition & fitness")
 
+# Demo Mode State (Global)
+demo_mode = False
+demo_user_id = None
+demo_guild_id = None
+
 
 class HealthButlerDiscordBot(Client):
     """
@@ -69,6 +74,113 @@ class HealthButlerDiscordBot(Client):
         )
         logger.info(f"Bot activity set to: {DISCORD_ACTIVITY}")
 
+        # Set demo mode status in activity if enabled
+        if demo_mode:
+            await self.change_presence(
+                activity=discord.Activity(
+                    type=discord.ActivityType.listening,
+                    name=f"[演示模式] {DISCORD_ACTIVITY}"
+                )
+            )
+
+    async def _handle_demo_command(self, message: discord.Message):
+        """
+        Handle /demo command - Toggle demo mode on/off.
+
+        Demo mode creates a temporary user session that auto-exits.
+        """
+        global demo_mode, demo_user_id, demo_guild_id
+
+        demo_mode = not demo_mode  # Toggle demo mode
+
+        if demo_mode:
+            # Enter demo mode
+            demo_user_id = str(message.author.id)
+            demo_guild_id = str(message.guild.id)
+
+            await message.channel.send(
+                "🎭 **演示模式已激活**\n"
+                "━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+                "👤 **临时演示账户已创建**\n"
+                f"• 用户ID: `{demo_user_id[:8]}...`\n"
+                f"• 服务器: `{message.guild.name}`\n"
+                "━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
+                "📋 **演示规则**:\n"
+                "1️⃣ 所有响应将标记为「[演示]」\n"
+                "2️⃣ 演示结束后自动退出\n"
+                "3️⃣ 不会保存任何对话记录\n"
+                "4️⃣ 输入 `/demo` 再次可退出演示模式\n"
+                "━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
+                "✨ 现在所有消息都将通过演示账户处理"
+            )
+
+            # Update bot activity to show demo mode
+            await self.change_presence(
+                activity=discord.Activity(
+                    type=discord.ActivityType.listening,
+                    name="[演示模式] " + DISCORD_ACTIVITY
+                )
+            )
+
+            logger.info(f"✅ Demo mode activated by {message.author.display_name}")
+
+        else:
+            # Exit demo mode
+            demo_mode = False
+            demo_user_id = None
+            demo_guild_id = None
+
+            await message.channel.send(
+                "🛑 **演示模式已退出**\n"
+                "━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+                "✨ 已恢复正常用户账户"
+            )
+
+            # Reset bot activity
+            await self.change_presence(
+                activity=discord.Activity(
+                    type=discord.ActivityType.listening,
+                    name=DISCORD_ACTIVITY
+                )
+            )
+
+            logger.info(f"✅ Demo mode deactivated by {message.author.display_name}")
+
+    async def _handle_exit_command(self, message: discord.Message):
+        """
+        Handle /exit or /quit command - Only works in demo mode.
+
+        Exits demo mode and returns to normal account.
+        """
+        global demo_mode, demo_user_id, demo_guild_id
+
+        if not demo_mode:
+            await message.channel.send("⚠️ 当前未在演示模式。\n输入 `/demo` 先进入演示模式。")
+            return
+
+        # Exit demo mode
+        demo_mode = False
+        demo_user_id = None
+        demo_guild_id = None
+
+        await message.channel.send(
+                "🛑 **已退出演示模式**\n"
+                "━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+                "✨ 演示账户已关闭\n"
+                f"👋 所有者: {message.author.mention}\n"
+                "✨ 已恢复正常用户账户"
+            )
+
+        # Reset bot activity
+        await self.change_presence(
+                activity=discord.Activity(
+                    type=discord.ActivityType.listening,
+                    name=DISCORD_ACTIVITY
+                )
+            )
+
+        logger.info(f"✅ Demo mode exited by {message.author.display_name}")
+
     async def on_ready(self):
         """
         Called when the bot has successfully connected to Discord Gateway.
@@ -82,15 +194,36 @@ class HealthButlerDiscordBot(Client):
         Handle incoming messages from Discord.
 
         Routes to appropriate agent based on content:
+        - /demo command → Enter/exit demo mode
         - With image attachment → Nutrition Agent (food analysis)
         - Text query → Coordinator (intent routing)
         """
+        global demo_mode, demo_user_id, demo_guild_id
+
         # Ignore messages from bots (including self)
         if message.author.bot:
             return
 
         # Ignore DMs for MVP (guild messages only)
         if not message.guild:
+            return
+
+        # Check for /demo command
+        if message.content.strip().lower() == "/demo":
+            await self._handle_demo_command(message)
+            return
+
+        # Check for /exit or /quit command (only works in demo mode)
+        content_lower = message.content.strip().lower()
+        if content_lower in ("/exit", "/quit"):
+            if demo_mode:
+                await self._handle_exit_command(message)
+            else:
+                await message.channel.send("⚠️ `/exit` 命令只能在演示模式下使用。\n输入 `/demo` 先进入演示模式。")
+            return
+
+        # In demo mode, only respond to demo user
+        if demo_mode and str(message.author.id) != demo_user_id:
             return
 
         # Process message
@@ -156,6 +289,10 @@ class HealthButlerDiscordBot(Client):
                     user_context=user_context
                 )
 
+                # Add [演示] prefix if in demo mode
+                if demo_mode:
+                    result['response'] = f"[演示] {result['response']}"
+
                 # Send response
                 await self._send_swarmed_response(
                     message.channel, result['response']
@@ -184,6 +321,10 @@ class HealthButlerDiscordBot(Client):
                 image_path=None,
                 user_context=user_context
             )
+
+            # Add [演示] prefix if in demo mode
+            if demo_mode:
+                result['response'] = f"[演示] {result['response']}"
 
             # Send response
             await self._send_swarmed_response(
