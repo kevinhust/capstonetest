@@ -32,6 +32,8 @@ DISCORD_ACTIVITY = os.getenv("DISCORD_ACTIVITY", "Helping with nutrition & fitne
 demo_mode = False
 demo_user_id = None
 demo_guild_id = None
+demo_onboarding_step = 0  # 0: None, 1: Gender, 2: Metrics, 3: Goal
+demo_user_profile = {}
 
 
 class HealthButlerDiscordBot(Client):
@@ -44,6 +46,7 @@ class HealthButlerDiscordBot(Client):
     - Text queries (routes to Coordinator)
     - Auto-reconnect on disconnect
     - Health check endpoint for Cloud Run
+    - Interactive Demo Mode with Onboarding
     """
 
     def __init__(self):
@@ -71,49 +74,34 @@ class HealthButlerDiscordBot(Client):
     async def _handle_demo_command(self, message: discord.Message):
         """
         Handle /demo command - Toggle demo mode on/off.
-
-        Demo mode creates a temporary user session that auto-exits.
+        Starts the registration flow when activating.
         """
-        global demo_mode, demo_user_id, demo_guild_id
+        global demo_mode, demo_user_id, demo_guild_id, demo_onboarding_step, demo_user_profile
 
-        demo_mode = not demo_mode  # Toggle demo mode
-
-        if demo_mode:
-            # Enter demo mode
+        if not demo_mode:
+            # Start registration flow
             demo_user_id = str(message.author.id)
             demo_guild_id = str(message.guild.id)
+            demo_onboarding_step = 1
+            demo_user_profile = {}
 
             await message.channel.send(
-                "🎭 **Demo Mode Activated**\n"
+                "🎭 **Demo Mode: Registration Started**\n"
                 "━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
-                "👤 **Temporary Demo Account Created**\n"
-                f"• User ID: `{demo_user_id[:8]}...`\n"
-                f"• Server: `{message.guild.name}`\n"
-                "━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
-                "📋 **Demo Rules**:\n"
-                "1️⃣ All responses will be tagged with `[DEMO]`\n"
-                "2️⃣ Auto-exit after demo session ends\n"
-                "3️⃣ Conversation history will not be saved\n"
-                "4️⃣ Type `/demo` again to exit demo mode\n"
-                "━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
-                "✨ Now all messages will be processed via demo account"
+                "Welcome! Let's set up your temporary health profile.\n\n"
+                "**Step 1: Gender**\n"
+                "Please type your gender (e.g., Male, Female, Other):"
             )
-
-            # Update bot activity to show demo mode
-            await self.change_presence(
-                activity=discord.Activity(
-                    type=discord.ActivityType.listening,
-                    name="[Demo Mode] " + DISCORD_ACTIVITY
-                )
-            )
-
-            logger.info(f"✅ Demo mode activated by {message.author.display_name}")
+            
+            logger.info(f"🚀 Registration flow started by {message.author.display_name}")
 
         else:
             # Exit demo mode
             demo_mode = False
             demo_user_id = None
             demo_guild_id = None
+            demo_onboarding_step = 0
+            demo_user_profile = {}
 
             await message.channel.send(
                 "🛑 **Demo Mode Deactivated**\n"
@@ -131,22 +119,83 @@ class HealthButlerDiscordBot(Client):
 
             logger.info(f"✅ Demo mode deactivated by {message.author.display_name}")
 
+    async def _onboard_demo_user(self, message: discord.Message):
+        """Handle the interactive steps for demo user registration."""
+        global demo_mode, demo_onboarding_step, demo_user_profile
+
+        content = message.content.strip()
+
+        if demo_onboarding_step == 1:
+            # Process Gender
+            demo_user_profile["gender"] = content
+            demo_onboarding_step = 2
+            await message.channel.send(
+                "✅ Gender recorded.\n\n"
+                "**Step 2: Metrics**\n"
+                "Please type your Height and Weight (e.g., 180cm, 75kg):"
+            )
+
+        elif demo_onboarding_step == 2:
+            # Process Metrics
+            demo_user_profile["metrics"] = content
+            demo_onboarding_step = 3
+            await message.channel.send(
+                "✅ Metrics recorded.\n\n"
+                "**Step 3: Goal**\n"
+                "What is your primary health goal? (e.g., Muscle gain, Weight loss):"
+            )
+
+        elif demo_onboarding_step == 3:
+            # Process Goal
+            demo_user_profile["goal"] = content
+            demo_onboarding_step = 0
+            demo_mode = True # Registration complete!
+
+            # Final Welcome Message
+            await message.channel.send(
+                "🎉 **Registration Complete!**\n"
+                "━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+                "👤 **Temporary Demo Profile Ready**\n"
+                f"• Gender: `{demo_user_profile.get('gender')}`\n"
+                f"• Metrics: `{demo_user_profile.get('metrics')}`\n"
+                f"• Goal: `{demo_user_profile.get('goal')}`\n"
+                "━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
+                "📋 **Demo Rules**:\n"
+                "1️⃣ All responses will be tagged with `[DEMO]`\n"
+                "2️⃣ Auto-exit after demo session ends\n"
+                "3️⃣ Conversation history will not be saved\n"
+                "4️⃣ Type `/demo` again to exit demo mode\n"
+                "━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
+                "✨ You can now ask questions or upload food photos!"
+            )
+
+            # Update bot activity
+            await self.change_presence(
+                activity=discord.Activity(
+                    type=discord.ActivityType.listening,
+                    name="[Demo Mode] " + DISCORD_ACTIVITY
+                )
+            )
+            logger.info(f"✅ Demo registration complete for {message.author.display_name}")
+
     async def _handle_exit_command(self, message: discord.Message):
         """
         Handle /exit or /quit command - Only works in demo mode.
 
         Exits demo mode and returns to normal account.
         """
-        global demo_mode, demo_user_id, demo_guild_id
+        global demo_mode, demo_user_id, demo_guild_id, demo_onboarding_step, demo_user_profile
 
-        if not demo_mode:
+        if not demo_mode and demo_onboarding_step == 0:
             await message.channel.send("⚠️ Currently not in Demo Mode.\nType `/demo` to enter demo mode first.")
             return
 
-        # Exit demo mode
+        # Exit demo mode or cancel registration
         demo_mode = False
         demo_user_id = None
         demo_guild_id = None
+        demo_onboarding_step = 0
+        demo_user_profile = {}
 
         await message.channel.send(
                 "🛑 **Exited Demo Mode**\n"
@@ -180,10 +229,11 @@ class HealthButlerDiscordBot(Client):
 
         Routes to appropriate agent based on content:
         - /demo command → Enter/exit demo mode
+        - Registration flow → Process onboarding steps
         - With image attachment → Nutrition Agent (food analysis)
         - Text query → Coordinator (intent routing)
         """
-        global demo_mode, demo_user_id, demo_guild_id
+        global demo_mode, demo_user_id, demo_guild_id, demo_onboarding_step
 
         # Ignore messages from bots (including self)
         if message.author.bot:
@@ -198,13 +248,18 @@ class HealthButlerDiscordBot(Client):
             await self._handle_demo_command(message)
             return
 
-        # Check for /exit or /quit command (only works in demo mode)
+        # Check for /exit or /quit command (works during registration too)
         content_lower = message.content.strip().lower()
         if content_lower in ("/exit", "/quit"):
-            if demo_mode:
+            if demo_mode or demo_onboarding_step > 0:
                 await self._handle_exit_command(message)
             else:
                 await message.channel.send("⚠️ `/exit` command can only be used in Demo Mode.\nType `/demo` to enter demo mode first.")
+            return
+
+        # Check for onboarding state
+        if demo_onboarding_step > 0 and str(message.author.id) == demo_user_id:
+            await self._onboard_demo_user(message)
             return
 
         # In demo mode, only respond to demo user
