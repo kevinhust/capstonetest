@@ -84,26 +84,26 @@ class HealthButlerDiscordBot(Client):
             demo_guild_id = str(message.guild.id)
 
             await message.channel.send(
-                "🎭 **演示模式已激活**\n"
+                "🎭 **Demo Mode Activated**\n"
                 "━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
-                "👤 **临时演示账户已创建**\n"
-                f"• 用户ID: `{demo_user_id[:8]}...`\n"
-                f"• 服务器: `{message.guild.name}`\n"
+                "👤 **Temporary Demo Account Created**\n"
+                f"• User ID: `{demo_user_id[:8]}...`\n"
+                f"• Server: `{message.guild.name}`\n"
                 "━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
-                "📋 **演示规则**:\n"
-                "1️⃣ 所有响应将标记为「[演示]」\n"
-                "2️⃣ 演示结束后自动退出\n"
-                "3️⃣ 不会保存任何对话记录\n"
-                "4️⃣ 输入 `/demo` 再次可退出演示模式\n"
+                "📋 **Demo Rules**:\n"
+                "1️⃣ All responses will be tagged with `[DEMO]`\n"
+                "2️⃣ Auto-exit after demo session ends\n"
+                "3️⃣ Conversation history will not be saved\n"
+                "4️⃣ Type `/demo` again to exit demo mode\n"
                 "━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
-                "✨ 现在所有消息都将通过演示账户处理"
+                "✨ Now all messages will be processed via demo account"
             )
 
             # Update bot activity to show demo mode
             await self.change_presence(
                 activity=discord.Activity(
                     type=discord.ActivityType.listening,
-                    name="[演示模式] " + DISCORD_ACTIVITY
+                    name="[Demo Mode] " + DISCORD_ACTIVITY
                 )
             )
 
@@ -116,9 +116,9 @@ class HealthButlerDiscordBot(Client):
             demo_guild_id = None
 
             await message.channel.send(
-                "🛑 **演示模式已退出**\n"
+                "🛑 **Demo Mode Deactivated**\n"
                 "━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
-                "✨ 已恢复正常用户账户"
+                "✨ Normal user account restored"
             )
 
             # Reset bot activity
@@ -140,7 +140,7 @@ class HealthButlerDiscordBot(Client):
         global demo_mode, demo_user_id, demo_guild_id
 
         if not demo_mode:
-            await message.channel.send("⚠️ 当前未在演示模式。\n输入 `/demo` 先进入演示模式。")
+            await message.channel.send("⚠️ Currently not in Demo Mode.\nType `/demo` to enter demo mode first.")
             return
 
         # Exit demo mode
@@ -149,11 +149,11 @@ class HealthButlerDiscordBot(Client):
         demo_guild_id = None
 
         await message.channel.send(
-                "🛑 **已退出演示模式**\n"
+                "🛑 **Exited Demo Mode**\n"
                 "━━━━━━━━━━━━━━━━━━━━━━━━━\n"
-                "✨ 演示账户已关闭\n"
-                f"👋 所有者: {message.author.mention}\n"
-                "✨ 已恢复正常用户账户"
+                "✨ Demo account closed\n"
+                f"👋 Owner: {message.author.mention}\n"
+                "✨ Normal user account restored"
             )
 
         # Reset bot activity
@@ -204,7 +204,7 @@ class HealthButlerDiscordBot(Client):
             if demo_mode:
                 await self._handle_exit_command(message)
             else:
-                await message.channel.send("⚠️ `/exit` 命令只能在演示模式下使用。\n输入 `/demo` 先进入演示模式。")
+                await message.channel.send("⚠️ `/exit` command can only be used in Demo Mode.\nType `/demo` to enter demo mode first.")
             return
 
         # In demo mode, only respond to demo user
@@ -274,9 +274,9 @@ class HealthButlerDiscordBot(Client):
                     user_context=user_context
                 )
 
-                # Add [演示] prefix if in demo mode
+                # Add [DEMO] prefix if in demo mode
                 if demo_mode:
-                    result['response'] = f"[演示] {result['response']}"
+                    result['response'] = f"[DEMO] {result['response']}"
 
                 # Send response
                 await self._send_swarmed_response(
@@ -307,9 +307,9 @@ class HealthButlerDiscordBot(Client):
                 user_context=user_context
             )
 
-            # Add [演示] prefix if in demo mode
+            # Add [DEMO] prefix if in demo mode
             if demo_mode:
-                result['response'] = f"[演示] {result['response']}"
+                result['response'] = f"[DEMO] {result['response']}"
 
             # Send response
             await self._send_swarmed_response(
