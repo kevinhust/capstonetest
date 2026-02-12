@@ -1,0 +1,111 @@
+[
+    {
+        "exercise_id": "ex_001",
+        "name": "Back Squat (杠铃深蹲)",
+        "category": "Strength",
+        "impact_level": "High",
+        "contraindications": [
+            "Knee Injury",
+            "Lower Back Pain"
+        ],
+        "calories_per_min": 8,
+        "description": "Compound leg exercise involving a barbell."
+    },
+    {
+        "exercise_id": "ex_002",
+        "name": "Swimming (游泳)",
+        "category": "Cardio",
+        "impact_level": "Low",
+        "contraindications": [],
+        "calories_per_min": 10,
+        "description": "Low-impact full body cardiovascular exercise."
+    },
+    {
+        "exercise_id": "ex_003",
+        "name": "Running (跑步)",
+        "category": "Cardio",
+        "impact_level": "High",
+        "contraindications": [
+            "Knee Injury",
+            "Joint Problems",
+            "Asthma"
+        ],
+        "calories_per_min": 12,
+        "description": "High-impact cardio."
+    },
+    {
+        "exercise_id": "ex_004",
+        "name": "Cycling (骑行)",
+        "category": "Cardio",
+        "impact_level": "Low",
+        "contraindications": [],
+        "calories_per_min": 7,
+        "description": "Low-impact cardiovascular exercise."
+    },
+    {
+        "exercise_id": "ex_005",
+        "name": "Yoga (瑜伽)",
+        "category": "Flexibility",
+        "impact_level": "Low",
+        "contraindications": [],
+        "calories_per_min": 4,
+        "description": "Focus on flexibility and balance."
+    },
+    {
+        "exercise_id": "ex_006",
+        "name": "Elliptical (椭圆机)",
+        "category": "Cardio",
+        "impact_level": "Low",
+        "contraindications": [
+            "Knee Injury"
+        ],
+        "calories_per_min": 8,
+        "description": "Lower impact than running."
+    },
+    {
+        "exercise_id": "ex_007",
+        "name": "Walking (散步)",
+        "category": "Cardio",
+        "impact_level": "Low",
+        "contraindications": [],
+        "calories_per_min": 4,
+        "description": "Easy active recovery."
+    },
+    {
+        "exercise_id": "ex_008",
+        "name": "HIIT (高强度间歇训练)",
+        "category": "Cardio",
+        "impact_level": "High",
+        "contraindications": [
+            "Heart Disease",
+            "Hypertension",
+            "Obesity"
+        ],
+        "calories_per_min": 15,
+        "description": "Intense interval training."
+    },
+    {
+        "exercise_id": "ex_009",
+        "name": "Plank (平板支撑)",
+        "category": "Core",
+        "impact_level": "Low",
+        "contraindications": [
+            "Lower Back Pain"
+        ],
+        "calories_per_min": 3,
+        "description": "Isometric core strengthening."
+    },
+    {
+        "exercise_id": "ex_010",
+        "name": "Burpees (波比跳)",
+        "category": "Full Body",
+        "impact_level": "High",
+        "contraindications": [
+            "Knee Injury",
+            "Heart Disease",
+            "Obesity"
+        ],
+        "calories_per_min": 14,
+        "description": "High intensity full-body movement."
+    }
+]

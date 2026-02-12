@@ -10,7 +10,8 @@
 | :--- | :--- | :--- | :--- |
 | **1.0** | 2026-01-10 | Group 5 | Initial Draft |
 | **1.1** | 2026-01-16 | Group 5 | Finalized for Milestone 1 MVP Scope |
-| **1.2** | 2026-01-21 | Kevin (Docs) | **Architecture Pivot**: Replaced YOLO26 (Detection) with **ViT (Vision Transformer)** for simpler integration and higher out-of-box accuracy on Food-101. |
+| **1.2** | 2026-01-21 | Kevin (Docs) | Architecture Pivot: Exploration of ViT classification. |
+| **1.3** | 2026-02-11 | Kevin (Docs) | **Final Architecture Realignment**: Implemented **Hybrid Vision (YOLOv8 + Gemini)**, **Discord Interface**, and **5-Step Safety Onboarding**. Replaced legacy ViT and Streamlit. |
 
 ---
 
@@ -24,23 +25,22 @@ Current health apps often provide generic or ungrounded advice, lack integration
 
 #### 1.3 Proposed Solution (MVP)
 A Multi-Agent system with:
-- Coordinator routing user inputs
-- Nutrition Agent for photo-based analysis + RAG-grounded advice
-- Fitness Agent for simple follow-up suggestions
-- Streamlit UI for seamless interaction
-- Strict focus on nutrition domain for depth and reliability
+- **Intelligent Coordinator**: LLM-based routing logic for specialist agents.
+- **Nutrition Agent**: Hybrid Vision (YOLO + Gemini Flash) for high-fidelity meal analysis.
+- **Fitness Agent**: Safety-first advice filtered by structured health protocols.
+- **Discord Bot**: Accessible, conversational interface with rich onboarding views.
+- **Privacy First**: Ephemeral data processing with comprehensive safety boundaries.
 
 ---
 
 ### 2. Project Scope
 
 #### 2.1 In-Scope (MVP - P0 Must-Have)
-- **Multi-Agent Orchestration**: Coordinator + Nutrition Agent + Fitness Agent (using LangGraph for agentic flow)
-- **RAG Knowledge Pipeline**: Nutrition-focused vector DB (FAISS) with retrieval and grounding
-- **Food Recognition**: ViT-based classification (HuggingFace `nateraw/food-vit-101`) from uploaded images
-- **Nutrition Analysis**: Calorie/macro estimation + evidence-based dietary suggestions
-- **Streamlit Dashboard**: User interface for photo upload, text queries, session management, and evidence display
-- **Simple User Profile/Session**: Basic goals/preferences stored ephemerally
+- **Hybrid Vision System**: YOLOv8 for boundary detection + Gemini for semantic ingredient analysis.
+- **Safety RAG**: Enhanced RAG with custom safety protocols for health-sensitive fitness advice.
+- **Professional Onboarding**: 5-Step interactive flow (Basic Info, Goals, Conditions, Activity, Diet).
+- **Discord Integration**: Rich UI using Modals, Select Menus, and Multi-select Views.
+- **Context-Aware Recommendations**: Personalized advice based on BMI, health conditions, and real-time calorie balance.
 
 #### 2.2 Out-of-Scope (Phase 2 or Future Extensions)
 - Mental Health Agent
@@ -144,11 +144,10 @@ text
 
 ## 6. Technical Stack Summary
 
-- **Core**: LangGraph (orchestration), Gemini 2.5 Flash (primary LLM), DeepSeek/GLM fallback
-- **CV**: ViT (Transformer-based Classification)
-- **RAG**: FAISS + sentence-transformers
-- **Data**: USDA API (1000+ foods) + Open Food Facts backup
-- **UI**: Streamlit
+- **Core**: Swarm Orchestrator (Custom), Gemini 2.5 Flash (Primary Reasoning).
+- **CV**: Hybrid YOLOv8 (Boundaries) + Gemini 2.5 Flash (Semantics).
+- **RAG**: ChromaDB + Sentence-Transformers + Structured Safety JSON.
+- **Interface**: discord.py (Discord Bot).
 - **Deployment**: Docker + GCP Cloud Run
 
 ------

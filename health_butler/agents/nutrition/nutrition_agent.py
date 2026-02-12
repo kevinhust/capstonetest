@@ -10,6 +10,7 @@ from typing import Optional, List, Dict, Any
 import logging
 from src.agents.base_agent import BaseAgent
 from health_butler.cv_food_rec.vision_tool import VisionTool
+from health_butler.cv_food_rec.gemini_vision_engine import GeminiVisionEngine
 from health_butler.data_rag.rag_tool import RagTool
 
 logger = logging.getLogger(__name__)
@@ -17,16 +18,20 @@ logger = logging.getLogger(__name__)
 class NutritionAgent(BaseAgent):
     """
     Specialist agent for analyzing food, calculating nutrition, and providing diet advice.
-    It utilizes retrieval tools (USDA database) and vision tools (ViT) to understand food content.
+    
+    Hybrid Vision (Phase 5):
+    - YOLOv8: Detects boundaries and objects.
+    - Gemini 2.5 Flash: Performs detailed semantic analysis (ingredients, portions).
+    - RAG: Provides supplementary USDA/Common Foods data.
     """
     
-    def __init__(self):
+    def __init__(self, vision_tool: Optional[VisionTool] = None):
         super().__init__(
             role="nutrition",
             system_prompt="""You are an expert Nutritionist and Dietitian AI.
             
 Your responsibilities:
-1. Identify food items from descriptions or analyzed image tags.
+1. Identify food items from descriptions or analyzed image analysis.
 2. Estimate calories and macronutrients (Protein, Carbs, Fat) with high accuracy.
 3. Provide breakdown of ingredients when possible.
 4. Offer brief, actionable health tips based on the food content.
@@ -35,73 +40,70 @@ When you don't know the exact nutrition, use your general knowledge but mention 
 If provided with tool outputs (like RAG search results), prioritize that data.
             """
         )
-        self.vision_tool = VisionTool()
+        # Use shared vision tool if provided (Singleton pattern anyway)
+        self.vision_tool = vision_tool or VisionTool()
+        self.gemini_engine = GeminiVisionEngine()
         self.rag_tool = RagTool()
 
     def execute(self, task: str, context: Optional[List[Dict[str, Any]]] = None) -> str:
         """
-        Execute nutrition analysis. 
-        If 'image_path' is found in the task or context, use VisionTool.
-        Then query RAG backbone for details.
+        Execute nutrition analysis using Hybrid Vision System (Synchronous).
         """
         logger.info("[NutritionAgent] Executing task: %s", task)
         
-        # Check for image path in context or task (simplified heuristic)
+        # Check for image path and user context
         image_path = None
+        user_context_str = ""
         if context:
             for msg in context:
                 if msg.get("type") == "image_path":
                     image_path = msg.get("content")
-                    break
+                elif msg.get("type") == "user_context":
+                    user_context_str = msg.get("content")
         
-        # Also check if task string contains a path-like string (very basic check)
-        if "image:" in task:
-            parts = task.split("image:")
-            if len(parts) > 1:
-                image_path = parts[1].strip()
-
         vision_context = ""
         if image_path:
-            logger.info("[NutritionAgent] Vision analysis on: %s", image_path)
-            try:
-                vision_results = self.vision_tool.detect_food(image_path)
-                # Check if vision tool returned valid results (no errors)
-                if vision_results and "error" not in vision_results[0]:
-                    top_item = vision_results[0]
-                    vision_context = f"Visual Analysis identified: {top_item['label']} (Confidence: {top_item['confidence']:.2f})."
-                    # Use the detected label to augment the RAG query
-                    task = f"{task}. logic: Access nutrition info for {top_item['label']}."
-                else:
-                    # Vision tool failed or returned an error
-                    error_msg = vision_results[0].get("error", "Unknown error") if vision_results else "No results"
-                    logger.warning("[NutritionAgent] Vision analysis failed: %s. Proceeding with text-only analysis.", error_msg)
-                    vision_context = "(Visual analysis was unavailable - analyzing from text description only)"
-            except Exception as e:
-                # Catch any unexpected exceptions from vision tool
-                logger.error("[NutritionAgent] Unexpected vision error: %s", e)
-                vision_context = "(Visual analysis was unavailable - analyzing from text description only)"
-
-        # Perform RAG lookup based on the (potentially augmented) task
-        # We extract keywords from task to query RAG.
-        # For prototype, we just pass the full task or the vision label if available.
+            logger.info("[NutritionAgent] Starting Hybrid Vision Analysis...")
+            
+            # Step 1: Detect boundaries (YOLO)
+            detections = self.vision_tool.detect_food(image_path)
+            detections_summary = f"YOLO detected {len(detections)} potential food objects."
+            
+            # Step 2: Semantic Analysis (Gemini)
+            gemini_result = self.gemini_engine.analyze_food(image_path, user_context_str)
+            
+            if "error" not in gemini_result:
+                # Format vision context for the LLM
+                items = gemini_result.get("items", [])
+                if items:
+                    main_item = items[0]
+                    vision_context = (
+                        f"Visual Analysis Summary:\n"
+                        f"- Dish: {main_item.get('name')}\n"
+                        f"- Total Calories: {gemini_result.get('total_estimated_calories')} kcal\n"
+                        f"- Ingredients: {', '.join([i['name'] for i in main_item.get('ingredients', [])])}\n"
+                        f"- Tip: {gemini_result.get('health_tip')}\n"
+                    )
+                    # Sync detected label for RAG lookup
+                    task = f"{task}. logic: Analyze {main_item.get('name')}."
+            else:
+                vision_context = f"(Vision analysis failed: {gemini_result.get('error')})"
+        
+        # Step 3: RAG Lookup (Supplementary & Verification)
+        # Use the Gemini-verified dish name for targetted search, or fallback to the task string
         query_text = task
-        # Only use vision label for RAG query if vision analysis succeeded
-        # (i.e., vision_context contains actual identification, not an error message)
-        if vision_context and "unavailable" not in vision_context.lower():
-             # Extract the label from vision_context for more precise RAG query
-             # Format: "Visual Analysis identified: <label> (Confidence: ...)"
-             if "identified:" in vision_context:
-                 label = vision_context.split("identified: ")[1].split(" (")[0]
-                 query_text = label
-             
+        if vision_context and "main_item" in locals():
+            query_text = main_item.get('name', task)
+            
         rag_results = self.rag_tool.query(query_text, top_k=3)
         rag_context = ""
         if rag_results:
-            rag_context = "\nDatabase Information:\n"
+            rag_context = "\nUSDA/Knowledge Base Details:\n"
             for res in rag_results:
                 rag_context += f"- {res['text']}\n"
         
-        # Augment the prompt with tool data
+        # Augment the prompt with everything we have
         augmented_task = f"{task}\n\n{vision_context}\n{rag_context}"
         
+        # Call the base agent (LLM) to synthesize the final friendly response
         return super().execute(augmented_task, context)

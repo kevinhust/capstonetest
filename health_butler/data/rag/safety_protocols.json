@@ -1,0 +1,66 @@
+[
+    {
+        "protocol_id": "sp_001",
+        "condition": "Knee Injury",
+        "severity": "High",
+        "forbidden_patterns": [
+            "High-impact",
+            "Deep squats",
+            "Jumping",
+            "Running"
+        ],
+        "recommended_category": [
+            "Low-impact",
+            "Swimming",
+            "Yoga"
+        ],
+        "consult_doctor": true,
+        "warning_message": "Protect your knee - avoid deep bending and high-impact landing."
+    },
+    {
+        "protocol_id": "sp_002",
+        "condition": "Hypertension",
+        "severity": "Medium",
+        "forbidden_patterns": [
+            "HIIT",
+            "Heavy powerlifting"
+        ],
+        "recommended_category": [
+            "Light Cardio",
+            "Walking"
+        ],
+        "consult_doctor": true,
+        "warning_message": "Avoid intense strain that causes rapid blood pressure spikes."
+    },
+    {
+        "protocol_id": "sp_003",
+        "condition": "Diabetes",
+        "severity": "Medium",
+        "forbidden_patterns": [
+            "Long fast sessions"
+        ],
+        "recommended_category": [
+            "Walking",
+            "Strength Training"
+        ],
+        "consult_doctor": true,
+        "warning_message": "Monitor blood sugar levels closely during and after exercise."
+    },
+    {
+        "protocol_id": "sp_004",
+        "condition": "Lower Back Pain",
+        "severity": "High",
+        "forbidden_patterns": [
+            "Heavy squats",
+            "Deadlifts",
+            "Sit-ups"
+        ],
+        "recommended_category": [
+            "Stretching",
+            "Walking",
+            "Core stability"
+        ],
+        "consult_doctor": true,
+        "warning_message": "Avoid spinal compression or excessive forward bending."
+    }
+]

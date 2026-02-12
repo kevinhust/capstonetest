@@ -45,20 +45,23 @@ graph TB
 
     User[User]:::user
     
-    subgraph "Docker Compose Cluster"
+    subgraph "Dockerized Swarm Cluster"
         direction TB
-        UI["Streamlit Frontend<br/>(Python/Streamlit)"]:::ui
-        Coord["Coordinator Service<br/>(LangGraph API)"]:::logic
-        NutSvc["Nutrition Service<br/>(YOLO26 + RAG)"]:::logic
-        FitSvc["Fitness Service<br/>(Rule-based)"]:::logic
+        UI["Discord Bot Interface<br/>(discord.py)"]:::ui
+        Coord["Coordinator Agent<br/>(Gemini Routing)"]:::logic
+        Vision["Vision Singleton<br/>(YOLOv8 + Gemini Engine)"]:::logic
+        NutSvc["Nutrition Agent<br/>(Hybrid Vision + RAG)"]:::logic
+        FitSvc["Fitness Agent<br/>(Safety-First + BMR)"]:::logic
         
-        UI -->|HTTP/REST| Coord
-        Coord -->|Internal API| NutSvc
-        Coord -->|Internal API| FitSvc
+        UI -->|Events| Coord
+        Coord -->|Execute| NutSvc
+        Coord -->|Execute| FitSvc
+        NutSvc -->|Shared| Vision
     end
     
-    VDB[("FAISS Vector Store")]:::db
+    VDB[("ChromaDB / Vector Index")]:::db
     NutSvc --> VDB
+    FitSvc --> VDB
 ```
 
 ---
@@ -67,39 +70,24 @@ graph TB
 
 ### 2.1 Service Catalog
 
-| Service | Responsibility | Key Tech | 2026 Trend Alignment |
-|---------|----------------|----------|----------------------|
-| **Frontend** | User Interaction, Session State | Streamlit | Rapid prototyping |
-| **Coordinator** | Intent Routing, Synthesis | LangGraph | Agentic Orchestration |
-| **Nutrition Svc** | Food Recognition, Diet Advice | YOLO26, RAG | Edge-friendly CV |
-| **Fitness Svc** | Exercise Suggestions | Logic/Rules | - |
+| Agent | Responsibility | Key Tech | Status |
+|---------|----------------|----------|--------|
+| **Discord Bot** | Multi-modal entry point, Onboarding | discord.py | Deployed |
+| **Coordinator** | Task Decomposition, LLM Routing | Google GenAI | High Fidelity |
+| **Nutrition Agent**| Food Identity & Macro Breakdown | YOLOv8n, Gemini Flash | Hybrid Implemented |
+| **Fitness Agent** | Safety-filtered coaching | Enhanced RAG, MSJ BMR | Context-Aware |
 
-### 2.2 Component: Nutrition Service
+### 2.2 Component: Hybrid Vision System
+**The core "Eye" of the system, shared via Singleton pattern.**
+- **Stage 1: YOLOv8 (Physical)**: Detects food boundaries and count (locally).
+- **Stage 2: Gemini Flash (Semantic)**: Detailed identification of ingredients, portions, and hidden macros.
+- **RAG Verification**: Cross-references Gemini output with USDA nutritional database for verification.
 
-**Internal Structure:**
-- **CV Module**: Loads `yolo26-n.pt` for fast inference. Pre-processes image (resize/norm).
-- **RAG Module**: Embedding client (SentenceTransformer `all-MiniLM` or `e5-large`), FAISS index searcher.
-- **Analyst**: Logic to combine detected foods with retrieved nutrition facts.
-
-**Interface (JSON Contract):**
-
-```json
-// Input: RunAnalysisRequest
-{
-  "image_base64": "...",
-  "user_context": {"goal": "weight_loss"}
-}
-
-// Output: AnalysisResult
-{
-  "foods": [
-    {"name": "pizza", "confidence": 0.92, "calories": 285}
-  ],
-  "total_calories": 285,
-  "macros": {"protein": 12, "carbs": 36, "fat": 10},
-  "suggestions": ["Add a side salad for fiber."]
-}
-```
+### 2.3 Component: Safety-First Fitness
+**Protects the user using medical-grade filtering logic.**
+- **Condition Mapping**: Links health conditions (e.g. Heart Disease) to forbidden exercise patterns.
+- **Dynamic BMR**: Calculates daily expenditure using user profile metrics.
+- **Surplus/Deficit Logic**: Adjusts exercise intensity based on real-time nutrition logs.
 
 ---
 

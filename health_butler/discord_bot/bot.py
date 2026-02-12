@@ -35,61 +35,55 @@ demo_guild_id = None
 demo_user_profile = {}
 
 
-class HealthProfileModal(discord.ui.Modal, title='Health Profile Setup'):
-    """Modal form for collecting demo user information."""
-    
-    gender = discord.ui.TextInput(
-        label='Gender',
-        placeholder='e.g., Male, Female, Other',
-        min_length=1,
-        max_length=20,
-    )
-    
-    metrics = discord.ui.TextInput(
-        label='Height & Weight',
-        placeholder='e.g., 180cm, 75kg',
-        min_length=1,
-        max_length=50,
-    )
-    
-    goal = discord.ui.TextInput(
-        label='Primary Health Goal',
-        placeholder='e.g., Weight loss, Muscle gain',
-        style=discord.TextStyle.paragraph,
-        min_length=5,
-        max_length=200,
-    )
+class DietSelectView(discord.ui.View):
+    """Step 5: Dietary Preferences Multi-Select View"""
+    def __init__(self, user_id):
+        super().__init__(timeout=300)
+        self.user_id = user_id
 
-    async def on_submit(self, interaction: discord.Interaction):
+    @discord.ui.select(
+        placeholder="Select Dietary Preferences...",
+        min_values=0,
+        max_values=5,
+        options=[
+            discord.SelectOption(label="No Restrictions", emoji="✅", value="None"),
+            discord.SelectOption(label="Vegetarian", emoji="🥗", value="Vegetarian"),
+            discord.SelectOption(label="Vegan", emoji="🌱", value="Vegan"),
+            discord.SelectOption(label="Keto", emoji="🥓", value="Keto"),
+            discord.SelectOption(label="Gluten-Free", emoji="🌾", value="Gluten-Free"),
+            discord.SelectOption(label="Dairy-Free", emoji="🥛", value="Dairy-Free"),
+        ]
+    )
+    async def select_diet(self, interaction: discord.Interaction, select: discord.ui.Select):
+        if str(interaction.user.id) != self.user_id:
+            return await interaction.response.send_message("This setup is for someone else!", ephemeral=True)
+            
         global demo_mode, demo_user_profile, demo_user_id
-        
-        # Save profile data
-        demo_user_profile = {
-            "gender": self.gender.value,
-            "metrics": self.metrics.value,
-            "goal": self.goal.value
-        }
+        demo_user_profile["diet"] = select.values
         demo_mode = True
         demo_user_id = str(interaction.user.id)
-        
-        # Final Welcome Message
-        await interaction.response.send_message(
+
+        # Final Summary
+        summary = (
             "🎉 **Registration Complete!**\n"
             "━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
             "👤 **Temporary Demo Profile Ready**\n"
-            f"• Gender: `{demo_user_profile['gender']}`\n"
-            f"• Metrics: `{demo_user_profile['metrics']}`\n"
+            f"• Name: `{demo_user_profile['name']}`\n"
+            f"• Age: `{demo_user_profile['age']}` | Gender: `{demo_user_profile['gender']}`\n"
+            f"• Metrics: `{demo_user_profile['height']}cm / {demo_user_profile['weight']}kg`\n"
             f"• Goal: `{demo_user_profile['goal']}`\n"
+            f"• Conditions: `{', '.join(demo_user_profile['conditions']) if demo_user_profile['conditions'] else 'None'}`\n"
+            f"• Activity: `{demo_user_profile['activity']}`\n"
+            f"• Diet: `{', '.join(demo_user_profile['diet']) if demo_user_profile['diet'] else 'None'}`\n"
             "━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
             "📋 **Demo Rules**:\n"
-            "1️⃣ All responses will be tagged with `[DEMO]`\n"
-            "2️⃣ Auto-exit after demo session ends\n"
-            "3️⃣ Conversation history will not be saved\n"
-            "4️⃣ Type `/demo` again to exit demo mode\n"
+            "1️⃣ Responses tagged with `[DEMO]`\n"
+            "2️⃣ History not saved\n"
+            "3️⃣ Type `/demo` to exit\n"
             "━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
-            "✨ You can now ask questions or upload food photos!",
-            ephemeral=False
+            "✨ You can now ask health questions or upload food photos!"
         )
+        await interaction.response.edit_message(content=summary, view=None)
         
         # Update bot activity
         await interaction.client.change_presence(
@@ -98,11 +92,151 @@ class HealthProfileModal(discord.ui.Modal, title='Health Profile Setup'):
                 name="[Demo Mode] " + DISCORD_ACTIVITY
             )
         )
-        logger.info(f"✅ Demo registration complete for {interaction.user.display_name}")
+        logger.info(f"✅ Full Demo registration complete for {interaction.user.display_name}")
+
+
+class ActivitySelectView(discord.ui.View):
+    """Step 4: Activity Level Select View"""
+    def __init__(self, user_id):
+        super().__init__(timeout=300)
+        self.user_id = user_id
+
+    @discord.ui.select(
+        placeholder="Select Activity Level...",
+        options=[
+            discord.SelectOption(label="Sedentary", description="Desk job, little exercise", emoji="🪑"),
+            discord.SelectOption(label="Lightly Active", description="1-3 days/week exercise", emoji="🚶"),
+            discord.SelectOption(label="Moderately Active", description="3-5 days/week exercise", emoji="🏃"),
+            discord.SelectOption(label="Very Active", description="6-7 days/week exercise", emoji="🏋️"),
+            discord.SelectOption(label="Extra Active", description="Physical job + training", emoji="🔥"),
+        ]
+    )
+    async def select_activity(self, interaction: discord.Interaction, select: discord.ui.Select):
+        if str(interaction.user.id) != self.user_id:
+            return await interaction.response.send_message("This setup is for someone else!", ephemeral=True)
+            
+        demo_user_profile["activity"] = select.values[0]
+        await interaction.response.edit_message(
+            content="**Step 5/5: Dietary Preferences**\nSelect any dietary restrictions or preferences:",
+            view=DietSelectView(self.user_id)
+        )
+
+
+class ConditionSelectView(discord.ui.View):
+    """Step 3: Health Conditions Multi-Select View"""
+    def __init__(self, user_id):
+        super().__init__(timeout=300)
+        self.user_id = user_id
+
+    @discord.ui.select(
+        placeholder="Select Health Conditions...",
+        min_values=0,
+        max_values=4,
+        options=[
+            discord.SelectOption(label="No Conditions", emoji="✅", value="None"),
+            discord.SelectOption(label="Knee Injury / Pain", emoji="🦵", value="Knee Injury"),
+            discord.SelectOption(label="High Blood Pressure", emoji="💓", value="Hypertension"),
+            discord.SelectOption(label="Diabetes", emoji="🩸", value="Diabetes"),
+            discord.SelectOption(label="Lower Back Pain", emoji="🔙", value="Lower Back Pain"),
+        ]
+    )
+    async def select_conditions(self, interaction: discord.Interaction, select: discord.ui.Select):
+        if str(interaction.user.id) != self.user_id:
+            return await interaction.response.send_message("This setup is for someone else!", ephemeral=True)
+            
+        demo_user_profile["conditions"] = select.values if "None" not in select.values else []
+        await interaction.response.edit_message(
+            content="**Step 4/5: Activity Level**\nHow active are you on a weekly basis?",
+            view=ActivitySelectView(self.user_id)
+        )
+
+
+class GoalSelectView(discord.ui.View):
+    """Step 2: Health Goal Select View"""
+    def __init__(self, user_id):
+        super().__init__(timeout=300)
+        self.user_id = user_id
+
+    @discord.ui.select(
+        placeholder="Select Health Goal...",
+        options=[
+            discord.SelectOption(label="Lose Weight", description="Calorie deficit focus", emoji="📉"),
+            discord.SelectOption(label="Maintain", description="Balanced nutrition focus", emoji="⚖️"),
+            discord.SelectOption(label="Gain Muscle", description="Calorie surplus/protein focus", emoji="📈"),
+        ]
+    )
+    async def select_goal(self, interaction: discord.Interaction, select: discord.ui.Select):
+        if str(interaction.user.id) != self.user_id:
+            return await interaction.response.send_message("This setup is for someone else!", ephemeral=True)
+            
+        demo_user_profile["goal"] = select.values[0]
+        await interaction.response.edit_message(
+            content="**Step 3/5: Health Conditions**\n(Phase 5 Safety Integration) Select any conditions to enable safety filtering:",
+            view=ConditionSelectView(self.user_id)
+        )
+
+
+class HealthProfileModal(discord.ui.Modal, title='Step 1/5: Basic Information'):
+    """Step 1: Modal for basic metrics."""
+    
+    user_name = discord.ui.TextInput(
+        label='Name',
+        placeholder='Kevin Wang',
+        min_length=2,
+        max_length=50,
+    )
+    
+    age = discord.ui.TextInput(
+        label='Age (18-100)',
+        placeholder='35',
+        min_length=1,
+        max_length=3,
+    )
+    
+    gender = discord.ui.TextInput(
+        label='Gender',
+        placeholder='Male / Female',
+        min_length=1,
+        max_length=10,
+    )
+    
+    height = discord.ui.TextInput(
+        label='Height (cm)',
+        placeholder='175',
+        min_length=2,
+        max_length=3,
+    )
+    
+    weight = discord.ui.TextInput(
+        label='Weight (kg)',
+        placeholder='90',
+        min_length=2,
+        max_length=3,
+    )
+
+    async def on_submit(self, interaction: discord.Interaction):
+        global demo_user_profile
+        
+        # Save Basic Info
+        demo_user_profile = {
+            "name": self.user_name.value,
+            "age": self.age.value,
+            "gender": self.gender.value,
+            "height": self.height.value,
+            "weight": self.weight.value
+        }
+        
+        # Transition to Step 2: Goal
+        await interaction.response.send_message(
+            "✅ Basic information saved.\n\n"
+            "**Step 2/5: Health Goal**\nWhat is your primary objective?",
+            view=GoalSelectView(str(interaction.user.id))
+        )
+        logger.info(f"📊 Step 1 complete for {interaction.user.display_name}")
 
 
 class StartSetupView(discord.ui.View):
-    """View containing the 'Start Setup' button."""
+    """Initial Welcome View."""
     def __init__(self):
         super().__init__(timeout=None)
 
@@ -121,7 +255,7 @@ class HealthButlerDiscordBot(Client):
     - Text queries (routes to Coordinator)
     - Auto-reconnect on disconnect
     - Health check endpoint for Cloud Run
-    - Interactive Demo Mode with Buttons & Modals
+    - Interactive 5-Step Demo Onboarding (Buttons, Modals, Selects)
     """
 
     def __init__(self):
@@ -148,12 +282,12 @@ class HealthButlerDiscordBot(Client):
 
     async def _handle_demo_command(self, message: discord.Message):
         """
-        Handle /demo command - Toggle demo mode or start onboarding.
+        Handle /demo command - Toggle demo mode or start comprehensive onboarding.
         """
         global demo_mode, demo_user_id, demo_guild_id, demo_user_profile
 
         if not demo_mode:
-            # Send the "Start Setup" button
+            # Send the "Start Setup" welcome component
             await message.channel.send(
                 "Hi! I'm **Health Butler**, your personal nutrition assistant.\n"
                 "Just 90 seconds to set up your profile, and I'll give you super accurate food analysis and personalized recommendations.",
