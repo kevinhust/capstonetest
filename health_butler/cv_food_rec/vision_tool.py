@@ -17,40 +17,37 @@ logger = logging.getLogger(__name__)
 
 class VisionTool:
     """
-    Vision tool for food recognition using Vision Transformer (ViT).
-    Phase 2: Integration with HuggingFace ViT (nateraw/food-vit-101).
+    Vision tool for food recognition.
+    Pivot (Milestone 2): Uses YOLOv8 for object detection + Gemini for analysis.
     """
     
-    def __init__(self, model_name: str = "StatsGary/VIT-food101-image-classifier") -> None:
+    def __init__(self, model_name: str = "yolov8n.pt") -> None:
         self.model_name = model_name
-        self._load_model()
+        self.model = None
+        self.processor = None
+        logger.info("VisionTool initialized (Lazy Loading enabled)")
     
     def _load_model(self) -> None:
-        """Load the ViT model and processor."""
+        """Lazy load the vision models on first use."""
+        if self.model is not None:
+            return
+
         try:
-            logger.info("Loading ViT model: %s...", self.model_name)
-            self.processor = ViTImageProcessor.from_pretrained(self.model_name)
-            self.model = ViTForImageClassification.from_pretrained(self.model_name)
-            self.model.eval()
-            logger.info("ViT model loaded successfully.")
+            from ultralytics import YOLO
+            logger.info("Loading YOLOv8 model: %s...", self.model_name)
+            self.model = YOLO(self.model_name)
+            logger.info("YOLOv8 model loaded successfully.")
         except Exception as e:
-            logger.warning("Failed to load %s: %s. Trying fallback 'google/vit-base-patch16-224'...", self.model_name, e)
-            try:
-                fallback = "google/vit-base-patch16-224"
-                self.processor = ViTImageProcessor.from_pretrained(fallback)
-                self.model = ViTForImageClassification.from_pretrained(fallback)
-                self.model.eval()
-                self.model_name = fallback
-                logger.info("Fallback model %s loaded successfully.", fallback)
-            except Exception as e2:
-                logger.error("Critical: Failed to load fallback model: %s", e2)
-                self.model = None
-            
+            logger.error("Failed to load YOLOv8 model: %s. Vision features will be limited.", e)
+            self.model = None
+
     def detect_food(self, image_path: str) -> List[Dict[str, Any]]:
         """
-        Classify food items in the given image.
-        Returns a list containing the top prediction with label and confidence.
+        Detect food items using YOLOv8. 
+        Note: Actual Gemini analysis happens in NutritionAgent or here.
         """
+        self._load_model()
+        
         logger.info("Analyzing image: %s", image_path)
         image_path_obj = Path(image_path)
         

@@ -23,20 +23,26 @@ class RagTool:
     def __init__(self, db_path: str = "health_butler/data/chroma_db", collection_name: str = "nutrition_data"):
         self.db_path = db_path
         self.collection_name = collection_name
-        
-        # Initialize embedding function
-        # Using a lightweight model for the MVP
-        self.ef = embedding_functions.SentenceTransformerEmbeddingFunction(
-            model_name="all-MiniLM-L6-v2"
-        )
-        
-        self._init_db()
+        self.ef = None
+        self.client = None
+        self.collection = None
+        logger.info("RagTool initialized (Lazy Loading enabled)")
 
-    def _init_db(self):
-        """Initialize ChromaDB client and collection."""
+    def _load_resources(self):
+        """Lazy load embedding function and database connection."""
+        if self.collection is not None:
+            return
+
         try:
+            # Initialize embedding function
+            # Using a lightweight model for the MVP
+            logger.info("Initializing SentenceTransformerEmbeddingFunction (all-MiniLM-L6-v2)...")
+            self.ef = embedding_functions.SentenceTransformerEmbeddingFunction(
+                model_name="all-MiniLM-L6-v2"
+            )
+            
+            # Initialize ChromaDB
             path_obj = Path(self.db_path)
-            # Ensure parent directories exist
             path_obj.mkdir(parents=True, exist_ok=True)
             
             self.client = chromadb.PersistentClient(path=self.db_path)
@@ -45,15 +51,15 @@ class RagTool:
                 embedding_function=self.ef
             )
             logger.info("Connected to ChromaDB at %s, collection: %s", self.db_path, self.collection_name)
-            logger.info("Collection count: %d", self.collection.count())
         except Exception as e:
-            logger.error("Failed to initialize ChromaDB: %s", e)
+            logger.error("Failed to initialize RagTool resources: %s", e)
             raise e
 
     def query(self, query_text: str, top_k: int = 3, filter_metadata: Optional[Dict[str, Any]] = None) -> List[Dict[str, Any]]:
         """
         Retrieve relevant documents using semantic search.
         """
+        self._load_resources()
         logger.info("RAG Query: %s", query_text)
         
         try:
@@ -84,6 +90,7 @@ class RagTool:
         Add documents to the vector DB.
         Expected format: [{"text": "...", "metadata": {...}, "id": "..."}]
         """
+        self._load_resources()
         if not documents:
             return
             

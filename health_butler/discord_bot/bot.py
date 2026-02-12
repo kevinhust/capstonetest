@@ -66,22 +66,7 @@ class HealthButlerDiscordBot(Client):
         Called when the bot is starting.
         Sets up the bot's activity and status.
         """
-        await self.change_presence(
-            activity=discord.Activity(
-                type=discord.ActivityType.listening,
-                name=DISCORD_ACTIVITY
-            )
-        )
-        logger.info(f"Bot activity set to: {DISCORD_ACTIVITY}")
-
-        # Set demo mode status in activity if enabled
-        if demo_mode:
-            await self.change_presence(
-                activity=discord.Activity(
-                    type=discord.ActivityType.listening,
-                    name=f"[演示模式] {DISCORD_ACTIVITY}"
-                )
-            )
+        logger.info("Bot setup_hook executed")
 
     async def _handle_demo_command(self, message: discord.Message):
         """
