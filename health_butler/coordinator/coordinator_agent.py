@@ -6,8 +6,14 @@ based on keyword analysis and health context. Extends RouterAgent
 with health-specific delegation logic.
 """
 
-from typing import Dict, List, Any
+import json
+import logging
+from typing import Dict, List, Any, Optional
 from src.agents.router_agent import RouterAgent
+from src.config import settings
+from google.genai.types import GenerateContentConfig
+
+logger = logging.getLogger(__name__)
 
 class CoordinatorAgent(RouterAgent):
     """
@@ -17,23 +23,60 @@ class CoordinatorAgent(RouterAgent):
     
     def __init__(self):
         system_prompt = """You are the Coordinator Agent for the Personal Health Butler AI.
-
-Your responsibilities:
-1. Analyze user inputs (questions about food, exercise, or general health).
-2. Determine if the request needs the 'nutrition' agent (food analysis, diet queries) or the 'fitness' agent (exercise advice, activity suggestions).
-3. Connect the workflow: Nutrition Agent output -> Fitness Agent input when relevant (e.g., "I ate X" -> Nutrition calcs -> Fitness advice).
+Your goal is to delegate user requests to the most appropriate health specialist.
 
 Available specialist agents:
 - nutrition: Analyzes food images or descriptions, estimates calories/macros.
 - fitness: Suggests exercises and answers fitness questions.
 
-When analyzing a task, respond with a delegation plan in this format:
-DELEGATION:
-- agent: <agent_name>
-- task: <specific task for that agent>
+You MUST respond with a valid JSON planning object.
 """
         # Initialize BaseAgent directly to override Router's role
         super(CoordinatorAgent, self).__init__(role="coordinator", system_prompt=system_prompt)
+
+    def analyze_and_delegate(self, user_task: str) -> List[Dict[str, Any]]:
+        """
+        Analyze task using Gemini Structured Output for 100% reliable JSON.
+        """
+        if not self.client:
+            return self._simple_delegate(user_task)
+
+        prompt = f"PLAN DELEGATION FOR TASK: {user_task}"
+        
+        try:
+            response = self.client.models.generate_content(
+                model=settings.GEMINI_MODEL_NAME,
+                contents=self.system_prompt + "\n\n" + prompt,
+                config=GenerateContentConfig(
+                    response_mime_type="application/json",
+                    response_schema={
+                        "type": "OBJECT",
+                        "properties": {
+                            "delegations": {
+                                "type": "ARRAY",
+                                "items": {
+                                    "type": "OBJECT",
+                                    "properties": {
+                                        "agent": {"type": "STRING"},
+                                        "task": {"type": "STRING"}
+                                    },
+                                    "required": ["agent", "task"]
+                                }
+                            }
+                        },
+                        "required": ["delegations"]
+                    }
+                )
+            )
+            
+            data = response.parsed
+            if isinstance(data, dict) and "delegations" in data:
+                return data["delegations"]
+            return self._simple_delegate(user_task)
+            
+        except Exception as e:
+            logger.error(f"CoordinatorAgent delegation failed: {e}")
+            return self._simple_delegate(user_task)
 
     def _simple_delegate(self, task: str) -> List[Dict[str, Any]]:
         """

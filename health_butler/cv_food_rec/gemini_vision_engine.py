@@ -1,77 +1,147 @@
 """Gemini Vision Engine for semantic food analysis.
 
-Uses Gemini 2.5 Flash to identify dishes, ingredients, and estimate portions.
-Works in tandem with YOLOv8 which provides boundary detection.
+Uses the modern google-genai SDK (v2026) to identify dishes, ingredients, and estimate portions.
+Updated to gemini-2.5-flash for reliability beyond March 2026.
 """
 
 import os
 import json
 import logging
 from typing import Dict, Any, Optional
-import google.generativeai as genai
+from google import genai
 from PIL import Image
 
 # Setup logging
 logger = logging.getLogger(__name__)
 
+# Recommended Stable Model as of Feb 2026
+DEFAULT_MODEL = "gemini-2.5-flash"
+
 class GeminiVisionEngine:
     """
     Semantic engine for food analysis using Gemini.
-    Responsible for "what" is in the image.
+    Phase 8 Refinement: Future-proofed model selection.
     """
     
-    def __init__(self, api_key: Optional[str] = None, model_name: str = "gemini-2.0-flash") -> None:
+    def __init__(self, api_key: Optional[str] = None, model_name: str = DEFAULT_MODEL) -> None:
         self.api_key = api_key or os.getenv("GOOGLE_API_KEY")
         if not self.api_key:
             logger.warning("⚠️ GOOGLE_API_KEY not found. GeminiVisionEngine will fail.")
             
-        genai.configure(api_key=self.api_key)
-        self.model = genai.GenerativeModel(model_name)
-        logger.info(f"GeminiVisionEngine initialized with model: {model_name}")
+        self.client = genai.Client(api_key=self.api_key)
+        self.model_name = model_name
+        
+        # Expert recommended warning for deprecated models
+        if "2.0" in self.model_name:
+            logger.warning(
+                f"☢️ CRITICAL: Using deprecated model {self.model_name}! "
+                f"It will be shut down on 2026-03-31. Please switch to {DEFAULT_MODEL}."
+            )
+        else:
+            logger.info(f"✅ GeminiVisionEngine initialized with stable model: {self.model_name}")
 
     def analyze_food(self, image_path: str, user_context: Optional[str] = None) -> Dict[str, Any]:
         """
-        Analyze a food image using Gemini and return structured data (Synchronous).
+        Analyze a food image using Gemini and return structured data.
         """
         if not self.api_key:
             return {"error": "API Key missing"}
 
-        logger.info(f"🚀 Sending image to Gemini for semantic analysis: {image_path}")
+        logger.info(f"🚀 Sending image to Gemini {self.model_name} for high-fidelity analysis...")
         
         try:
             img = Image.open(image_path)
             
             prompt = """You are an expert nutritionist and chef. Analyze this food image in extreme detail.
-... [Rest of the prompt remains same] ...
+Analyze the dish and ingredients. 
+CRITICAL: Ignore generic YOLO labels like 'bowl' or 'plate' if they appear in the image metadata. Focus on actual food content.
+
+NUTRITION REFERENCE (per 100g):
+- Beef patty: ~250 kcal, 25g protein, 18g fat, 0g carbs
+- Chicken breast: ~165 kcal, 31g protein, 3.6g fat, 0g carbs
+- Burger bun: ~265 kcal, 9g protein, 50g carbs, 4g fat
+- Cheese slice: ~100 kcal, 6g protein, 0.5g carbs, 9g fat
+- Cooked rice: ~130 kcal, 2.7g protein, 28g carbs, 0.3g fat
+- Pasta: ~131 kcal, 5g protein, 25g carbs, 1.1g fat
+
+Ensure protein, fat, and carbs are NON-ZERO if the food contains meat, cheese, oils, or cereal.
 """
             if user_context:
                 prompt += f"\n\nUSER CONTEXT: {user_context}"
 
-            # Call Gemini (Synchronous)
-            response = self.model.generate_content([prompt, img])
+            # Phase 13: Structured Output Schema
+            # This ensures 100% valid JSON and stable macro fields
+            from google.genai.types import GenerateContentConfig
+
+            response = self.client.models.generate_content(
+                model=self.model_name,
+                contents=[prompt, img],
+                config=GenerateContentConfig(
+                    response_mime_type="application/json",
+                    response_schema={
+                        "type": "OBJECT",
+                        "properties": {
+                            "dish_name": {"type": "STRING"},
+                            "items": {
+                                "type": "ARRAY",
+                                "items": {
+                                    "type": "OBJECT",
+                                    "properties": {
+                                        "name": {"type": "STRING"},
+                                        "main_ingredients": {"type": "ARRAY", "items": {"type": "STRING"}},
+                                        "estimated_weight_grams": {"type": "NUMBER"},
+                                        "visual_volume_percentage": {"type": "NUMBER"},
+                                        "macros": {
+                                            "type": "OBJECT",
+                                            "properties": {
+                                                "calories": {"type": "NUMBER"},
+                                                "protein": {"type": "NUMBER"},
+                                                "carbs": {"type": "NUMBER"},
+                                                "fat": {"type": "NUMBER"}
+                                            },
+                                            "required": ["calories", "protein", "carbs", "fat"]
+                                        },
+                                        "confidence_score": {"type": "NUMBER"}
+                                    },
+                                    "required": ["name", "macros"]
+                                }
+                            },
+                            "total_macros": {
+                                "type": "OBJECT",
+                                "properties": {
+                                    "calories": {"type": "NUMBER"},
+                                    "protein": {"type": "NUMBER"},
+                                    "carbs": {"type": "NUMBER"},
+                                    "fat": {"type": "NUMBER"}
+                                },
+                                "required": ["calories", "protein", "carbs", "fat"]
+                            },
+                            "total_confidence": {"type": "NUMBER"},
+                            "composition_analysis": {"type": "STRING"},
+                            "notes": {"type": "STRING"}
+                        },
+                        "required": ["dish_name", "total_macros", "items"]
+                    }
+                )
+            )
             
-            # Clean and parse JSON
-            text = response.text
-            # Remove markdown code blocks if any
-            if "```json" in text:
-                text = text.split("```json")[1].split("```")[0].strip()
-            elif "```" in text:
-                text = text.split("```")[1].split("```")[0].strip()
-                
-            data = json.loads(text)
-            logger.info("✅ Gemini analysis complete.")
-            return data
+            data = response.parsed
+            
+            # Compatibility injection
+            if isinstance(data, dict):
+                if "confidence_score" not in data and "total_confidence" in data:
+                    data["confidence_score"] = data["total_confidence"]
+                return data
+            else:
+                # If SDK returned something else, try manual parse of text
+                text = response.text
+                return json.loads(text)
             
         except Exception as e:
             logger.error(f"❌ Gemini analysis failed: {e}")
             return {"error": str(e)}
 
 if __name__ == "__main__":
-    # Test block
-    import asyncio
-    async def test():
-        engine = GeminiVisionEngine()
-        res = await engine.analyze_food("data/raw/sample_food.jpg")
-        print(json.dumps(res, indent=2))
-    
-    # asyncio.run(test())
+    logging.basicConfig(level=logging.INFO)
+    engine = GeminiVisionEngine()
+    print(f"Engine ready with model: {engine.model_name}")

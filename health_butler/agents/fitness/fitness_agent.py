@@ -1,8 +1,9 @@
 from typing import Optional, List, Dict, Any
 import logging
 import json
+import re
 from src.agents.base_agent import BaseAgent
-from health_butler.data_rag.enhanced_rag_tool import EnhancedRagTool
+from health_butler.data_rag.simple_rag_tool import SimpleRagTool
 
 logger = logging.getLogger(__name__)
 
@@ -10,30 +11,40 @@ class FitnessAgent(BaseAgent):
     """
     Specialist agent for providing exercise and wellness advice.
     
-    Safety-First Evolution (Phase 5):
+    Safety-First Evolution (Phase 7):
     - Real-time Context: Uses actual user profile and daily calorie status.
-    - Safety RAG: Filters exercises based on user's health conditions.
-    - Dynamic Prompting: Adjusts tone and intensity based on calorie balance (Surplus/Deficit).
+    - Simple RAG: Filters exercises based on JSON data (no vector DB).
+    - Structured Output: Returns JSON for interactive Discord UI.
     """
     
     def __init__(self):
         super().__init__(
             role="fitness",
             system_prompt="""You are an expert Fitness Coach and Wellness Assistant.
+Your goal is to provide safe, actionable exercise advice.
 
-Your responsibilities:
-1. Suggest exercises that are SAFE and appropriate for the user's specific health conditions.
-2. Adjust the intensity of recommendations based on the user's current calorie balance (Surplus vs Deficit).
-3. Motivate the user to stay active while strictly respecting mechanical and health restrictions.
-4. Provide clear, actionable activity suggestions (e.g., "Walking for 20 mins").
+OUTPUT FORMAT:
+You MUST return a valid JSON object with the following structure:
+{
+  "summary": "A concise overview of the advice (1-2 sentences).",
+  "recommendations": [
+    {
+      "name": "Exercise name",
+      "duration_min": 20,
+      "kcal_estimate": 150,
+      "reason": "Why this is good for them today."
+    }
+  ],
+  "safety_warnings": ["List of critical warnings based on their health conditions"],
+  "avoid": ["Specific activities to avoid"]
+}
 
 SAFETY POLICY:
-- If a user has a condition (e.g., Knee Injury), NEVER suggest high-impact movements like jumping or running.
+- If a user has a condition (e.g., Knee Injury), NEVER suggest high-impact movements.
 - Prioritize the "Safe Exercises" provided in the context.
-- Always include a short safety warning if a health condition is present.
             """
         )
-        self.rag_tool = EnhancedRagTool()
+        self.rag = SimpleRagTool()
 
     def _calculate_bmi(self, profile: Dict[str, Any]) -> float:
         """Helper to calculate BMI from profile data."""
@@ -76,12 +87,9 @@ SAFETY POLICY:
         if not nutrition_info:
             return "Maintenance (No nutrition data)"
         
-        # Simple extraction logic (look for patterns like "Total Calories: 500 kcal")
-        import re
         match = re.search(r"Total Calories:\s*(\d+)", nutrition_info)
         if match:
             intake = int(match.group(1))
-            # If intake is significant (> 40% of daily BMR in one meal), consider it a surplus-driving meal
             if intake > (bmr * 0.4):
                 return f"Surplus Detected ({intake} kcal meal)"
             elif intake < (bmr * 0.15):
@@ -91,7 +99,7 @@ SAFETY POLICY:
 
     def execute(self, task: str, context: Optional[List[Dict[str, Any]]] = None) -> str:
         """
-        Execute fitness advice task with dynamic context and safety filtering.
+        Execute fitness advice task and return structured JSON.
         """
         logger.info("[FitnessAgent] Analyzing task: %s", task)
         
@@ -119,38 +127,43 @@ SAFETY POLICY:
                     nutrition_info = msg.get("content", "")
         
         # 2. Get Safe Recommendations from RAG
-        rag_data = self.rag_tool.get_safe_recommendations(task, health_conditions)
-        safe_ex_list = [f"- {e['name']}: {e.get('description', '')}" for e in rag_data['safe_exercises']]
+        rag_data = self.rag.get_safe_recommendations(task, health_conditions)
+        safe_ex_list = [f"{e['name']} (Reason: {e.get('description', '')})" for e in rag_data['safe_exercises']]
         warnings = rag_data['safety_warnings']
         
-        # 3. Dynamic Calculation (Diagram 2: CalorieCalc)
+        # 3. Dynamic Calculation
         bmr = self._calculate_bmr(user_profile)
         calorie_status = self._determine_calorie_status(bmr, nutrition_info)
+        bmi = self._calculate_bmi(user_profile)
         
         # 4. Build Dynamic Prompt Supplement
-        bmi = self._calculate_bmi(user_profile)
-        name = user_profile.get('name', 'User')
-        
         dynamic_context = f"""
-### USER PROFILE
-- Name: {name}
-- BMI: {bmi}
-- Daily Maintenance (BMR x Activity): {round(bmr)} kcal
-- Health Conditions: {', '.join(health_conditions) if health_conditions else 'None'}
-- Primary Goal: {user_profile.get('goal', 'General Health')}
-
-### REAL-TIME CONTEXT
-- Recent Nutrition Data: {nutrition_info if nutrition_info else 'N/A'}
-- Calorie Balance Analysis: {calorie_status}
-
-### SAFETY-FILTERED KNOWLEDGE (RAG)
-- Recommended SAFE Exercises:
-{chr(10).join(safe_ex_list) if safe_ex_list else '- Walking (general low-impact)'}
-
-- ⚠️ SAFETY WARNINGS:
-{chr(10).join(['- ' + w for w in warnings]) if warnings else '- No specific mechanical restrictions detected.'}
+USER PROFILE: BMI {bmi}, Calorie Maintenance {round(bmr)} kcal, Conditions: {health_conditions}.
+CALORIE STATUS: {calorie_status}.
+RAG SAFE EXERCISES: {safe_ex_list}.
+RAG SAFETY WARNINGS: {warnings}.
 """
         
-        full_task = f"{task}\n\nCONTEXTUAL DATA:\n{dynamic_context}\n\nBased on the above, provide personalized and safe advice."
+        full_task = f"{task}\n\nCONTEXT:\n{dynamic_context}\n\nBased on this, return EXACTLY a JSON object with keys: summary, recommendations, safety_warnings, avoid."
         
-        return super().execute(full_task, context)
+        result_str = super().execute(full_task, context)
+        
+        # Validation/Cleanup
+        try:
+            clean_str = result_str.strip()
+            if "```json" in clean_str:
+                clean_str = clean_str.split("```json")[-1].split("```")[0].strip()
+            elif "```" in clean_str:
+                clean_str = clean_str.split("```")[-1].split("```")[0].strip()
+            
+            # Verify valid JSON
+            json.loads(clean_str)
+            return clean_str
+        except Exception as e:
+            logger.error(f"[FitnessAgent] Failed to parse structured output: {e}. Raw: {result_str}")
+            return json.dumps({
+                "summary": "Stay active safely!",
+                "recommendations": [{"name": "Walking", "duration_min": 20, "kcal_estimate": 80, "reason": "General mobility"}],
+                "safety_warnings": ["Consult a professional."],
+                "avoid": []
+            })
