@@ -7,9 +7,12 @@ services:
     env_file:
       - .env
     environment:
-      # Override/ensure these are passed through from .env
-      - DISCORD_TOKEN=${DISCORD_TOKEN}
-      - GOOGLE_API_KEY=${GOOGLE_API_KEY}
+      # Credentials can come from shell exports or .env
+      - DISCORD_TOKEN
+      - GOOGLE_API_KEY
+      - SUPABASE_URL
+      - SUPABASE_KEY
+      # Non-secret runtime defaults (secrets come from .env via env_file)
       - DISCORD_ACTIVITY=${DISCORD_ACTIVITY:-Local_Docker_Testing}
       - DEBUG_MODE=${DEBUG_MODE:-false}
       - DEPLOY_ENV=${DEPLOY_ENV:-local}

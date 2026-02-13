@@ -366,17 +366,23 @@ class HealthSwarm:
         
         # Add user preferences if present
         if user_context:
+            profile_payload = dict(user_context)
             context.append({
                 "type": "user_context",
-                "content": str(user_context)
+                "content": profile_payload
+            })
+            context.append({
+                "type": "user_profile",
+                "content": profile_payload
             })
         
         # Add previous agent outputs (chain results)
         for output in previous_outputs:
             if not output.get("error"):
+                output_type = "nutrition_summary" if output["agent"] == "nutrition" else "previous_result"
                 context.append({
                     "from": output["agent"],
-                    "type": "previous_result",
+                    "type": output_type,
                     "content": output["result"]
                 })
         
@@ -415,8 +421,23 @@ class HealthSwarm:
         for output in successful_outputs:
             synthesis_prompt += f"[{output['agent'].capitalize()} Agent]:\n{output['result']}\n\n"
         synthesis_prompt += "Provide a unified, user-friendly summary."
-        
-        return self.coordinator.execute(synthesis_prompt)
+
+        try:
+            synthesized = self.coordinator.execute(synthesis_prompt)
+            lowered = synthesized.lower()
+            if any(marker in lowered for marker in ("error executing task", "resource_exhausted", "quota", "429")):
+                return self._fallback_synthesis(successful_outputs)
+            return synthesized
+        except Exception:
+            return self._fallback_synthesis(successful_outputs)
+
+    def _fallback_synthesis(self, successful_outputs: List[Dict[str, Any]]) -> str:
+        """Deterministic synthesis fallback when coordinator LLM synthesis fails."""
+        sections: List[str] = []
+        for output in successful_outputs:
+            title = output["agent"].capitalize()
+            sections.append(f"**{title}**\n{output['result']}")
+        return "\n\n".join(sections)
     
     def get_status_updates(self) -> List[Dict[str, Any]]:
         """Get status updates for UI display."""

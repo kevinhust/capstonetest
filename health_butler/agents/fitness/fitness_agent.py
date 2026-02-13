@@ -65,8 +65,8 @@ SAFETY POLICY:
     def _calculate_bmi(self, profile: Dict[str, Any]) -> float:
         """Helper to calculate BMI from profile data."""
         try:
-            height_m = float(profile.get('height', 170)) / 100
-            weight_kg = float(profile.get('weight', 70))
+            height_m = float(profile.get('height', profile.get('height_cm', 170))) / 100
+            weight_kg = float(profile.get('weight', profile.get('weight_kg', 70)))
             return round(weight_kg / (height_m * height_m), 1)
         except:
             return 22.0
@@ -74,8 +74,8 @@ SAFETY POLICY:
     def _calculate_bmr(self, profile: Dict[str, Any]) -> float:
         """Calculate BMR using Mifflin-St Jeor Equation."""
         try:
-            weight = float(profile.get('weight', 70))
-            height = float(profile.get('height', 170))
+            weight = float(profile.get('weight', profile.get('weight_kg', 70)))
+            height = float(profile.get('height', profile.get('height_cm', 170)))
             age = float(profile.get('age', 30))
             gender = profile.get('gender', 'Male').lower()
             
@@ -98,18 +98,48 @@ SAFETY POLICY:
         except:
             return 2000.0
 
+    def _extract_calories_from_nutrition_info(self, nutrition_info: str) -> Optional[float]:
+        """Extract calories from nutrition handoff text or JSON payload."""
+        if not nutrition_info:
+            return None
+
+        try:
+            parsed = json.loads(nutrition_info)
+            if isinstance(parsed, dict):
+                total_macros = parsed.get("total_macros", {})
+                calories = total_macros.get("calories")
+                if calories is not None:
+                    return float(calories)
+        except Exception:
+            pass
+
+        regex_patterns = [
+            r"Total Calories:\s*(\d+(?:\.\d+)?)",
+            r'"calories"\s*:\s*(\d+(?:\.\d+)?)',
+            r"(\d+(?:\.\d+)?)\s*kcal",
+            r"(\d+(?:\.\d+)?)\s*calories",
+        ]
+        for pattern in regex_patterns:
+            match = re.search(pattern, nutrition_info, re.IGNORECASE)
+            if match:
+                try:
+                    return float(match.group(1))
+                except Exception:
+                    continue
+
+        return None
+
     def _determine_calorie_status(self, bmr: float, nutrition_info: str) -> str:
         """Extract calorie count from nutrition info and compare to BMR."""
         if not nutrition_info:
             return "Maintenance (No nutrition data)"
-        
-        match = re.search(r"Total Calories:\s*(\d+)", nutrition_info)
-        if match:
-            intake = int(match.group(1))
+
+        intake = self._extract_calories_from_nutrition_info(nutrition_info)
+        if intake is not None:
             if intake > (bmr * 0.4):
-                return f"Surplus Detected ({intake} kcal meal)"
-            elif intake < (bmr * 0.15):
-                return f"Deficit/Light Meal ({intake} kcal)"
+                return f"Surplus Detected ({int(intake)} kcal meal)"
+            if intake < (bmr * 0.15):
+                return f"Deficit/Light Meal ({int(intake)} kcal)"
         
         return "Maintenance/Balanced"
 
@@ -126,7 +156,7 @@ SAFETY POLICY:
 
         if context:
             for msg in context:
-                if msg.get("type") == "user_context":
+                if msg.get("type") in ("user_context", "user_profile"):
                     try:
                         content = msg.get("content", "{}")
                         if isinstance(content, str):
@@ -139,13 +169,13 @@ SAFETY POLICY:
                     except Exception as e:
                         logger.warning(f"[FitnessAgent] Failed to parse user_context: {e}")
                 
-                elif msg.get("from") == "nutrition":
+                elif msg.get("from") == "nutrition" or msg.get("type") == "nutrition_summary":
                     nutrition_info = msg.get("content", "")
         
         # 2. Get Safe Recommendations from RAG
         rag_data = self.rag.get_safe_recommendations(task, health_conditions)
         safe_ex_list = [f"{e['name']} (Reason: {e.get('description', '')})" for e in rag_data['safe_exercises']]
-        warnings = rag_data['safety_warnings']
+        warnings = rag_data.get('safety_warnings', [])
         
         # 3. Dynamic Calculation
         bmr = self._calculate_bmr(user_profile)

@@ -7,6 +7,7 @@ Provides persistent storage for:
 """
 
 import os
+import json
 from typing import Dict, Any, Optional, List
 from datetime import date, datetime
 from supabase import create_client, Client
@@ -21,14 +22,21 @@ class ProfileDB:
     def __init__(self):
         """Initialize Supabase client from environment variables."""
         self.url: str = os.getenv("SUPABASE_URL", "")
-        self.key: str = os.getenv("SUPABASE_KEY", "")
+        self.key: str = (
+            os.getenv("SUPABASE_SERVICE_ROLE_KEY", "")
+            or os.getenv("SUPABASE_KEY", "")
+        )
 
         if not self.url or not self.key:
             raise RuntimeError(
-                "SUPABASE_URL and SUPABASE_KEY must be set in environment variables"
+                "SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY (or SUPABASE_KEY) must be set in environment variables"
             )
 
         self.client: Client = create_client(self.url, self.key)
+
+    def _is_missing_column_error(self, error: Exception, column_name: str) -> bool:
+        """Return True when exception indicates a missing DB column."""
+        return column_name.lower() in str(error).lower()
 
     # ============================================
     # Profile Operations
@@ -59,7 +67,8 @@ class ProfileDB:
         goal: str,
         conditions: List[str],
         activity: str,
-        diet: List[str]
+        diet: List[str],
+        preferences: Optional[Dict[str, Any]] = None,
     ) -> Dict[str, Any]:
         """Create a new user profile.
 
@@ -74,6 +83,7 @@ class ProfileDB:
             conditions: List of health conditions
             activity: Activity level
             diet: List of dietary preferences
+            preferences: Additional personalization signals
 
         Returns:
             Created profile data
@@ -84,14 +94,26 @@ class ProfileDB:
             "id": discord_user_id,  # Using Discord ID as UUID for demo
             "full_name": full_name,
             "age": age,
+            "gender": gender,
             "weight_kg": weight_kg,
             "height_cm": height_cm,
             "goal": goal,
-            "restrictions": restrictions_str
+            "restrictions": restrictions_str,
+            "activity": activity,
+            "diet": ", ".join(diet) if diet else None,
+            "preferences_json": preferences or {},
         }
 
-        response = self.client.table("profiles").insert(profile_data).execute()
-        return response.data[0] if response.data else None
+        try:
+            response = self.client.table("profiles").insert(profile_data).execute()
+            return response.data[0] if response.data else None
+        except Exception as exc:
+            if "preferences_json" in profile_data and self._is_missing_column_error(exc, "preferences_json"):
+                fallback_data = dict(profile_data)
+                fallback_data.pop("preferences_json", None)
+                response = self.client.table("profiles").insert(fallback_data).execute()
+                return response.data[0] if response.data else None
+            raise
 
     def update_profile(
         self,
@@ -107,8 +129,16 @@ class ProfileDB:
         Returns:
             Updated profile data
         """
-        response = self.client.table("profiles").update(updates).eq("id", discord_user_id).execute()
-        return response.data[0] if response.data else None
+        try:
+            response = self.client.table("profiles").update(updates).eq("id", discord_user_id).execute()
+            return response.data[0] if response.data else None
+        except Exception as exc:
+            if "preferences_json" in updates and self._is_missing_column_error(exc, "preferences_json"):
+                fallback_updates = dict(updates)
+                fallback_updates.pop("preferences_json", None)
+                response = self.client.table("profiles").update(fallback_updates).eq("id", discord_user_id).execute()
+                return response.data[0] if response.data else None
+            raise
 
     # ============================================
     # Daily Logs Operations
@@ -126,12 +156,12 @@ class ProfileDB:
         log_data = {
             "user_id": discord_user_id,
             "date": log_date.isoformat(),
-            "calories_intake": calories_intake,
-            "protein_g": protein_g,
-            "steps_count": steps_count
+            "calories_intake": float(calories_intake),
+            "protein_g": float(protein_g),
+            "steps_count": int(steps_count),
         }
 
-        response = self.client.table("daily_logs").insert(log_data).execute()
+        response = self.client.table("daily_logs").upsert(log_data, on_conflict="user_id,date").execute()
         return response.data[0] if response.data else None
 
     def get_daily_logs(self, discord_user_id: str, days: int = 7) -> List[Dict[str, Any]]:
@@ -172,11 +202,11 @@ class ProfileDB:
         meal_data = {
             "user_id": discord_user_id,
             "dish_name": dish_name,
-            "calories": calories,
-            "protein_g": protein_g,
-            "carbs_g": carbs_g,
-            "fat_g": fat_g,
-            "confidence_score": confidence_score
+            "calories": float(calories),
+            "protein_g": float(protein_g),
+            "carbs_g": float(carbs_g),
+            "fat_g": float(fat_g),
+            "confidence_score": float(confidence_score),
         }
         
         response = self.client.table("meals").insert(meal_data).execute()
@@ -211,6 +241,192 @@ class ProfileDB:
         """Get recent chat messages for a user."""
         response = self.client.table("chat_messages").select("*").eq("user_id", discord_user_id).order("created_at", desc=True).limit(limit).execute()
         return response.data
+
+    # ============================================
+    # Workout Tracking Operations
+    # ============================================
+
+    def log_workout_event(
+        self,
+        discord_user_id: str,
+        exercise_name: str,
+        duration_min: int,
+        kcal_estimate: float,
+        status: str = "recommended",
+        source: str = "fitness_agent",
+        raw_payload: Optional[Dict[str, Any]] = None,
+    ) -> Optional[Dict[str, Any]]:
+        """Persist workout recommendation/completion.
+
+        Tries `workout_logs` table first; falls back to `chat_messages` JSON log
+        so tracking still works even if the optional table is not provisioned yet.
+        """
+        event = {
+            "user_id": discord_user_id,
+            "exercise_name": exercise_name,
+            "duration_min": int(duration_min),
+            "kcal_estimate": float(kcal_estimate),
+            "status": status,
+            "source": source,
+            "metadata": raw_payload or {},
+        }
+
+        try:
+            response = self.client.table("workout_logs").insert(event).execute()
+            return response.data[0] if response.data else None
+        except Exception:
+            # Graceful fallback without breaking bot UX
+            payload = json.dumps(event)
+            return self.save_message(discord_user_id, role="workout_log", content=payload)
+
+    def add_routine_exercise(
+        self,
+        discord_user_id: str,
+        exercise_name: str,
+        target_per_week: int = 3,
+        metadata: Optional[Dict[str, Any]] = None,
+    ) -> Optional[Dict[str, Any]]:
+        """Add an exercise to the user's routine.
+
+        Tries `workout_routines` table first; falls back to `chat_messages`.
+        If an active routine entry already exists for this exercise, updates it
+        instead of creating duplicates.
+        """
+        normalized_exercise_name = str(exercise_name or "Exercise").strip()
+        routine_item = {
+            "user_id": discord_user_id,
+            "exercise_name": normalized_exercise_name,
+            "target_per_week": int(target_per_week),
+            "status": "active",
+            "metadata": metadata or {},
+        }
+
+        try:
+            existing = self.client.table("workout_routines")\
+                .select("id")\
+                .eq("user_id", discord_user_id)\
+                .eq("exercise_name", normalized_exercise_name)\
+                .eq("status", "active")\
+                .limit(1)\
+                .execute()
+
+            existing_rows = existing.data or []
+            if existing_rows:
+                response = self.client.table("workout_routines")\
+                    .update({
+                        "target_per_week": int(target_per_week),
+                        "metadata": metadata or {},
+                        "updated_at": datetime.now().isoformat(),
+                    })\
+                    .eq("id", existing_rows[0]["id"])\
+                    .execute()
+                return response.data[0] if response.data else None
+
+            response = self.client.table("workout_routines").insert(routine_item).execute()
+            return response.data[0] if response.data else None
+        except Exception:
+            payload = json.dumps(routine_item)
+            return self.save_message(discord_user_id, role="routine_log", content=payload)
+
+    def get_workout_progress(self, discord_user_id: str, days: int = 7) -> Dict[str, Any]:
+        """Return recent workout progress summary for UI display."""
+        start_ts = datetime.now().timestamp() - (days * 24 * 60 * 60)
+
+        completed_count = 0
+        recommended_count = 0
+        total_minutes = 0
+        total_kcal = 0.0
+        routine_count = 0
+        recent_recommendations: List[str] = []
+        routine_exercises: List[str] = []
+
+        try:
+            response = self.client.table("workout_logs")\
+                .select("status, duration_min, kcal_estimate, exercise_name, created_at")\
+                .eq("user_id", discord_user_id)\
+                .gte("created_at", datetime.fromtimestamp(start_ts).isoformat())\
+                .order("created_at", desc=True)\
+                .execute()
+
+            logs = response.data or []
+            for row in logs:
+                if row.get("status") == "recommended":
+                    recommended_count += 1
+                    exercise_name = str(row.get("exercise_name") or "").strip()
+                    if exercise_name and exercise_name not in recent_recommendations and len(recent_recommendations) < 3:
+                        recent_recommendations.append(exercise_name)
+
+                if row.get("status") == "completed":
+                    completed_count += 1
+                    total_minutes += int(row.get("duration_min") or 0)
+                    total_kcal += float(row.get("kcal_estimate") or 0)
+
+            routine_response = self.client.table("workout_routines")\
+                .select("id, exercise_name")\
+                .eq("user_id", discord_user_id)\
+                .eq("status", "active")\
+                .order("created_at", desc=True)\
+                .execute()
+            routine_rows = routine_response.data or []
+            routine_count = len(routine_rows)
+            for row in routine_rows:
+                exercise_name = str(row.get("exercise_name") or "").strip()
+                if exercise_name and len(routine_exercises) < 5:
+                    routine_exercises.append(exercise_name)
+
+            return {
+                "completed_count": completed_count,
+                "recommended_count": recommended_count,
+                "total_minutes": total_minutes,
+                "total_kcal": total_kcal,
+                "routine_count": routine_count,
+                "recent_recommendations": recent_recommendations,
+                "routine_exercises": routine_exercises,
+            }
+        except Exception:
+            # Fallback using chat_messages log payloads
+            history = self.get_chat_history(discord_user_id, limit=200)
+            for msg in history:
+                role = msg.get("role", "")
+                try:
+                    payload = json.loads(msg.get("content", "{}"))
+                except Exception:
+                    continue
+
+                created_at = msg.get("created_at")
+                if created_at:
+                    try:
+                        ts = datetime.fromisoformat(created_at.replace("Z", "+00:00")).timestamp()
+                        if ts < start_ts:
+                            continue
+                    except Exception:
+                        pass
+
+                if role == "workout_log":
+                    if payload.get("status") == "recommended":
+                        recommended_count += 1
+                        exercise_name = str(payload.get("exercise_name") or "").strip()
+                        if exercise_name and exercise_name not in recent_recommendations and len(recent_recommendations) < 3:
+                            recent_recommendations.append(exercise_name)
+                    if payload.get("status") == "completed":
+                        completed_count += 1
+                        total_minutes += int(payload.get("duration_min") or 0)
+                        total_kcal += float(payload.get("kcal_estimate") or 0)
+                if role == "routine_log" and payload.get("status") == "active":
+                    routine_count += 1
+                    exercise_name = str(payload.get("exercise_name") or "").strip()
+                    if exercise_name and exercise_name not in routine_exercises and len(routine_exercises) < 5:
+                        routine_exercises.append(exercise_name)
+
+            return {
+                "completed_count": completed_count,
+                "recommended_count": recommended_count,
+                "total_minutes": total_minutes,
+                "total_kcal": total_kcal,
+                "routine_count": routine_count,
+                "recent_recommendations": recent_recommendations,
+                "routine_exercises": routine_exercises,
+            }
 
 
 # Singleton instance for app-wide use

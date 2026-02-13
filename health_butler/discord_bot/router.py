@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import re
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Dict, List, Optional, Sequence, Tuple
@@ -17,55 +16,6 @@ class Delegation:
     task: str
 
 
-def _looks_like_meal_task(text: str) -> bool:
-    t = (text or "").lower()
-    return any(
-        w in t
-        for w in (
-            "eat",
-            "ate",
-            "meal",
-            "breakfast",
-            "lunch",
-            "dinner",
-            "calorie",
-            "calories",
-            "macro",
-            "macros",
-            "nutrition",
-            "protein",
-            "carbs",
-            "fat",
-            "burger",
-            "pizza",
-            "salad",
-        )
-    )
-
-
-def _looks_like_fitness_task(text: str) -> bool:
-    t = (text or "").lower()
-    return any(
-        w in t
-        for w in (
-            "fitness",
-            "workout",
-            "exercise",
-            "run",
-            "walk",
-            "gym",
-            "train",
-            "cardio",
-            "strength",
-            "hiit",
-            "stretch",
-            "burn",
-            "offset",
-            "steps",
-        )
-    )
-
-
 def build_delegations(
     coordinator: CoordinatorAgent,
     user_text: str,
@@ -73,31 +23,16 @@ def build_delegations(
     has_image: bool,
 ) -> List[Delegation]:
     """
-    Decide which agents to call.
+    Build delegation plan through Coordinator as the single orchestrator.
 
-    We keep this deterministic for Discord demos:
-    - image => nutrition
-    - meal-ish + (fitness-ish or "what should I do"/"what now") => nutrition then fitness
-    - otherwise fall back to CoordinatorAgent._simple_delegate
+    Thin interface rule:
+    - Router only forwards the message + image hint.
+    - Coordinator owns all workflow policy and chaining logic.
     """
     text = (user_text or "").strip()
+    planning_input = f"{text} [image attached]" if has_image else text
 
-    if has_image:
-        delegations: List[Delegation] = [Delegation(agent="nutrition", task=text)]
-        if _looks_like_fitness_task(text) or re.search(r"\bwhat should i do\b|\bwhat now\b", text.lower()):
-            delegations.append(Delegation(agent="fitness", task="Suggest exercises to balance this meal."))
-        return delegations
-
-    mealish = _looks_like_meal_task(text)
-    fitnessish = _looks_like_fitness_task(text)
-    if mealish and (fitnessish or re.search(r"\bwhat should i do\b|\bwhat now\b", text.lower())):
-        return [
-            Delegation(agent="nutrition", task=text),
-            Delegation(agent="fitness", task="Suggest exercises to balance this meal."),
-        ]
-
-    # Use coordinator's keyword routing (no LLM call)
-    raw = coordinator._simple_delegate(text)
+    raw = coordinator.analyze_and_delegate(planning_input)
     return [Delegation(agent=d["agent"], task=d["task"]) for d in raw]
 
 
@@ -135,7 +70,11 @@ def run_delegations(
                 )
                 continue
 
-            ctx2: List[Dict] = [{"type": "user_profile", "content": user_profile.to_dict()}]
+            profile_payload = user_profile.to_dict()
+            ctx2: List[Dict] = [
+                {"type": "user_profile", "content": profile_payload},
+                {"type": "user_context", "content": profile_payload},
+            ]
             if nutrition_response:
                 # Explicit nutrition -> fitness handoff (critical for your demo)
                 ctx2.append(
@@ -161,4 +100,37 @@ def run_delegations(
         parts.append("No response generated.")
 
     return "\n\n".join(parts), responses
+
+
+class AgentRouter:
+    """Single-entry router for Discord transport.
+
+    The transport layer remains thin and delegates all planning to Coordinator.
+    """
+
+    def __init__(self) -> None:
+        self.coordinator = CoordinatorAgent()
+        self.nutrition_agent = NutritionAgent()
+        self.fitness_agent = FitnessAgent()
+
+    async def route_message(
+        self,
+        content: str,
+        attachments: list,
+        user_profile: Optional[UserProfile],
+    ) -> str:
+        has_image = bool(attachments)
+        image_path: Optional[Path] = None
+        if has_image:
+            image_path = Path(getattr(attachments[0], "path", "")) if getattr(attachments[0], "path", None) else None
+
+        delegations = build_delegations(self.coordinator, content, has_image=has_image)
+        response, _ = run_delegations(
+            nutrition_agent=self.nutrition_agent,
+            fitness_agent=self.fitness_agent,
+            delegations=delegations,
+            user_profile=user_profile,
+            image_path=image_path,
+        )
+        return response
 

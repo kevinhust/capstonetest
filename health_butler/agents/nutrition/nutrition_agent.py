@@ -38,7 +38,15 @@ You MUST return a valid JSON object:
   "confidence_score": 0.0,
   "composition_analysis": "Detailed breakdown of ingredients and portions.",
   "health_tip": "A brief actionable tip.",
-  "items_detected": []
+    "items_detected": [],
+    "calorie_breakdown": [
+        {
+            "item": "Avocado",
+            "quantity": 1,
+            "calories_each": 160,
+            "calories_total": 160
+        }
+    ]
 }
 
 CRITICAL RULES:
@@ -66,6 +74,222 @@ CRITICAL RULES:
         except Exception as e:
             logger.error(f"[NutritionAgent] JSON extraction failed: {e}")
             return None
+
+    def _to_float(self, value: Any, default: float = 0.0) -> float:
+        """Convert arbitrary values to float safely."""
+        try:
+            return float(value)
+        except Exception:
+            return default
+
+    def _parse_quantity(self, portion_text: str) -> int:
+        """Infer quantity from portion text like 'x3', '3 pieces', or '2x'."""
+        if not portion_text:
+            return 1
+
+        text = str(portion_text).lower()
+        patterns = [
+            r"x\s*(\d+)",
+            r"(\d+)\s*x",
+            r"(\d+)\s*(?:pieces?|items?|slices?|servings?)",
+        ]
+        for pattern in patterns:
+            match = re.search(pattern, text)
+            if match:
+                try:
+                    return max(1, int(match.group(1)))
+                except Exception:
+                    continue
+        return 1
+
+    def _build_calorie_breakdown(
+        self,
+        items: List[Dict[str, Any]],
+        rag_matches: List[Dict[str, Any]],
+    ) -> List[Dict[str, Any]]:
+        """Build per-item calorie estimates plus subtotal using vision + RAG data."""
+        breakdown: List[Dict[str, Any]] = []
+
+        def aggregate_rows(rows: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+            grouped: Dict[str, Dict[str, Any]] = {}
+            for row in rows:
+                item_name = str(row.get("item") or "Unknown").strip()
+                qty = max(1, int(self._to_float(row.get("quantity"), 1)))
+                total = self._to_float(row.get("calories_total"), 0.0)
+                if total <= 0:
+                    continue
+
+                if item_name not in grouped:
+                    grouped[item_name] = {
+                        "item": item_name,
+                        "quantity": 0,
+                        "calories_total": 0.0,
+                    }
+                grouped[item_name]["quantity"] += qty
+                grouped[item_name]["calories_total"] += total
+
+            output: List[Dict[str, Any]] = []
+            for item_name, row in grouped.items():
+                qty = row["quantity"]
+                c_total = round(row["calories_total"], 1)
+                output.append(
+                    {
+                        "item": item_name,
+                        "quantity": qty,
+                        "calories_each": round(c_total / qty, 1),
+                        "calories_total": c_total,
+                    }
+                )
+            return output
+
+        rag_by_original: Dict[str, Dict[str, Any]] = {}
+        for match in rag_matches or []:
+            original_name = str(match.get("original_item") or "").strip().lower()
+            if original_name and original_name not in rag_by_original:
+                rag_by_original[original_name] = match
+
+        for item in items or []:
+            if not isinstance(item, dict):
+                continue
+
+            item_name = str(item.get("name") or "Unknown").strip()
+            item_key = item_name.lower()
+            portion_text = str(item.get("portion") or "")
+            quantity = self._parse_quantity(portion_text)
+            estimated_grams = self._to_float(item.get("estimated_weight_grams"), 0.0)
+
+            rag_match = rag_by_original.get(item_key)
+            calories_per_100g = self._to_float((rag_match or {}).get("calories"), 0.0)
+            vision_calories = self._to_float((item.get("macros") or {}).get("calories"), 0.0)
+
+            calories_each = 0.0
+            calories_total = 0.0
+
+            if calories_per_100g > 0 and estimated_grams > 0:
+                calories_each = round((calories_per_100g * estimated_grams) / 100.0, 1)
+                calories_total = round(calories_each * quantity, 1)
+            elif vision_calories > 0:
+                calories_total = round(vision_calories, 1)
+                calories_each = round(calories_total / quantity, 1)
+            elif calories_per_100g > 0:
+                calories_each = round(calories_per_100g, 1)
+                calories_total = round(calories_each * quantity, 1)
+
+            if calories_total <= 0:
+                continue
+
+            breakdown.append(
+                {
+                    "item": item_name,
+                    "quantity": int(quantity),
+                    "calories_each": calories_each,
+                    "calories_total": calories_total,
+                }
+            )
+
+        if breakdown:
+            return aggregate_rows(breakdown)
+
+        for match in rag_matches[:6]:
+            name = str(match.get("original_item") or match.get("name") or "Unknown")
+            calories = round(self._to_float(match.get("calories"), 0.0), 1)
+            if calories <= 0:
+                continue
+            breakdown.append(
+                {
+                    "item": name,
+                    "quantity": 1,
+                    "calories_each": calories,
+                    "calories_total": calories,
+                }
+            )
+
+        return aggregate_rows(breakdown)
+
+    def _sum_macros_from_items(self, items: List[Dict[str, Any]]) -> Dict[str, float]:
+        """Aggregate macro totals from vision-detected items when available."""
+        totals = {"calories": 0.0, "protein": 0.0, "carbs": 0.0, "fat": 0.0}
+        for item in items or []:
+            macros = item.get("macros", {}) if isinstance(item, dict) else {}
+            for key in totals:
+                try:
+                    totals[key] += float(macros.get(key, 0) or 0)
+                except Exception:
+                    continue
+        return totals
+
+    def _sum_macros_from_rag(self, rag_matches: List[Dict[str, Any]]) -> Dict[str, float]:
+        """Aggregate macro totals from RAG matches."""
+        totals = {"calories": 0.0, "protein": 0.0, "carbs": 0.0, "fat": 0.0}
+        for match in rag_matches or []:
+            for key in totals:
+                try:
+                    totals[key] += float(match.get(key, 0) or 0)
+                except Exception:
+                    continue
+        return totals
+
+    def _build_fallback_payload(
+        self,
+        vision_info: Dict[str, Any],
+        rag_matches: List[Dict[str, Any]],
+        items: List[Dict[str, Any]],
+    ) -> Dict[str, Any]:
+        """Build a non-zero nutrition payload when synthesis fails."""
+        rag_totals = self._sum_macros_from_rag(rag_matches)
+        item_totals = self._sum_macros_from_items(items)
+
+        totals = rag_totals if rag_totals.get("calories", 0) > 0 else item_totals
+
+        dish_name = vision_info.get("dish_name")
+        if not dish_name and items:
+            first_name = items[0].get("name") if isinstance(items[0], dict) else None
+            dish_name = first_name or "Meal"
+
+        if totals.get("calories", 0) <= 0:
+            return {
+                "dish_name": dish_name or "Meal",
+                "total_macros": {"calories": 0, "protein": 0, "carbs": 0, "fat": 0},
+                "detailed_nutrients": {
+                    "sodium_mg": 0,
+                    "fiber_g": 0,
+                    "sugar_g": 0,
+                    "saturated_fat_g": 0,
+                },
+                "confidence_score": vision_info.get("total_confidence", vision_info.get("confidence_score", 0.6)),
+                "composition_analysis": "Nutrition data is limited for this item. Try another image angle for better analysis.",
+                "health_tip": "Keep portions balanced and pair fruit with a protein source for better satiety.",
+                "ingredients_with_portions": [m.get("name", "Unknown") for m in rag_matches[:5]] if rag_matches else [],
+                "items_detected": [item.get("name", "Unknown") if isinstance(item, dict) else str(item) for item in items[:5]],
+                "calorie_breakdown": self._build_calorie_breakdown(items, rag_matches),
+            }
+
+        ingredients = [
+            f"{m.get('original_item', m.get('name', 'Unknown'))} (~{m.get('estimated_portion', '1 serving')})"
+            for m in rag_matches[:6]
+        ]
+        if not ingredients:
+            ingredients = [
+                item.get("name", "Unknown") if isinstance(item, dict) else str(item)
+                for item in items[:6]
+            ]
+
+        return {
+            "dish_name": dish_name or "Meal",
+            "total_macros": {k: round(v, 1) for k, v in totals.items()},
+            "detailed_nutrients": {
+                "sodium_mg": 0,
+                "fiber_g": 0,
+                "sugar_g": 0,
+                "saturated_fat_g": 0,
+            },
+            "confidence_score": vision_info.get("total_confidence", vision_info.get("confidence_score", 0.85)),
+            "composition_analysis": "Estimated from visual food recognition anchored with USDA/RAG nutritional references.",
+            "health_tip": "Meal analyzed successfully. Balance remaining meals today with fiber-rich vegetables and hydration.",
+            "ingredients_with_portions": ingredients,
+            "items_detected": [item.get("name", "Unknown") if isinstance(item, dict) else str(item) for item in items[:6]],
+            "calorie_breakdown": self._build_calorie_breakdown(items, rag_matches),
+        }
 
     def execute(self, task: str, context: Optional[List[Dict[str, Any]]] = None) -> str:
         """
@@ -120,52 +344,71 @@ IMPORTANT:
 - For 'detailed_nutrients', provide estimates for Sodium (mg), Fiber (g), Sugar (g), and Saturated Fat (g) based on common nutritional data.
 """
         
-        try:
-            # Phase 13: Structured Synthesis (Expanded for User Design)
-            response = self.client.models.generate_content(
-                model=settings.GEMINI_MODEL_NAME,
-                contents=self.system_prompt + "\n\n" + synthesis_input,
-                config=GenerateContentConfig(
-                    response_mime_type="application/json",
-                    response_schema={
-                        "type": "OBJECT",
-                        "properties": {
-                            "dish_name": {"type": "STRING"},
-                            "total_macros": {
-                                "type": "OBJECT",
-                                "properties": {
-                                    "calories": {"type": "NUMBER"},
-                                    "protein": {"type": "NUMBER"},
-                                    "carbs": {"type": "NUMBER"},
-                                    "fat": {"type": "NUMBER"}
+        data = None
+        model_candidates = [settings.GEMINI_MODEL_NAME, "gemini-2.5-flash"]
+        for model_name in model_candidates:
+            try:
+                response = self.client.models.generate_content(
+                    model=model_name,
+                    contents=self.system_prompt + "\n\n" + synthesis_input,
+                    config=GenerateContentConfig(
+                        response_mime_type="application/json",
+                        response_schema={
+                            "type": "OBJECT",
+                            "properties": {
+                                "dish_name": {"type": "STRING"},
+                                "total_macros": {
+                                    "type": "OBJECT",
+                                    "properties": {
+                                        "calories": {"type": "NUMBER"},
+                                        "protein": {"type": "NUMBER"},
+                                        "carbs": {"type": "NUMBER"},
+                                        "fat": {"type": "NUMBER"}
+                                    },
+                                    "required": ["calories", "protein", "carbs", "fat"]
                                 },
-                                "required": ["calories", "protein", "carbs", "fat"]
-                            },
-                            "detailed_nutrients": {
-                                "type": "OBJECT",
-                                "properties": {
-                                    "sodium_mg": {"type": "NUMBER"},
-                                    "fiber_g": {"type": "NUMBER"},
-                                    "sugar_g": {"type": "NUMBER"},
-                                    "saturated_fat_g": {"type": "NUMBER"}
+                                "detailed_nutrients": {
+                                    "type": "OBJECT",
+                                    "properties": {
+                                        "sodium_mg": {"type": "NUMBER"},
+                                        "fiber_g": {"type": "NUMBER"},
+                                        "sugar_g": {"type": "NUMBER"},
+                                        "saturated_fat_g": {"type": "NUMBER"}
+                                    }
+                                },
+                                "confidence_score": {"type": "NUMBER"},
+                                "composition_analysis": {"type": "STRING"},
+                                "health_tip": {"type": "STRING"},
+                                "ingredients_with_portions": {
+                                    "type": "ARRAY", 
+                                    "items": {"type": "STRING"}
+                                },
+                                "items_detected": {"type": "ARRAY", "items": {"type": "STRING"}},
+                                "calorie_breakdown": {
+                                    "type": "ARRAY",
+                                    "items": {
+                                        "type": "OBJECT",
+                                        "properties": {
+                                            "item": {"type": "STRING"},
+                                            "quantity": {"type": "NUMBER"},
+                                            "calories_each": {"type": "NUMBER"},
+                                            "calories_total": {"type": "NUMBER"}
+                                        }
+                                    }
                                 }
                             },
-                            "confidence_score": {"type": "NUMBER"},
-                            "composition_analysis": {"type": "STRING"},
-                            "health_tip": {"type": "STRING"},
-                            "ingredients_with_portions": {
-                                "type": "ARRAY", 
-                                "items": {"type": "STRING"}
-                            },
-                            "items_detected": {"type": "ARRAY", "items": {"type": "STRING"}}
-                        },
-                        "required": ["dish_name", "total_macros", "composition_analysis", "ingredients_with_portions"]
-                    }
+                            "required": ["dish_name", "total_macros", "composition_analysis", "ingredients_with_portions"]
+                        }
+                    )
                 )
-            )
-            data = response.parsed
-        except Exception as e:
-            logger.error(f"[NutritionAgent] Structured synthesis failed: {e}")
+                data = response.parsed
+                if model_name != settings.GEMINI_MODEL_NAME:
+                    logger.info(f"[NutritionAgent] Structured synthesis recovered with fallback model: {model_name}")
+                break
+            except Exception as e:
+                logger.error(f"[NutritionAgent] Structured synthesis failed on {model_name}: {e}")
+
+        if data is None:
             # Text fallback
             result_str = super().execute(synthesis_input, context)
             data = self._extract_json(result_str)
@@ -178,6 +421,14 @@ IMPORTANT:
                     try: data["total_macros"][target] = float(val) if val is not None else 0
                     except: data["total_macros"][target] = 0
 
+            calorie_breakdown = self._build_calorie_breakdown(items, rag_matches)
+            if calorie_breakdown:
+                data["calorie_breakdown"] = calorie_breakdown
+                breakdown_total = sum(self._to_float(row.get("calories_total"), 0.0) for row in calorie_breakdown)
+                current_total = self._to_float(data.get("total_macros", {}).get("calories"), 0.0)
+                if current_total <= 0:
+                    data["total_macros"]["calories"] = round(breakdown_total, 1)
+
             # Fallback to RAG sum if synthesis is weak
             if data.get("total_macros", {}).get("calories", 0) == 0 and rag_matches:
                 logger.info("[NutritionAgent] Synthesis failed macro grounding. calculating from RAG...")
@@ -187,5 +438,6 @@ IMPORTANT:
                 data["total_macros"]["fat"] = sum(m.get("fat", 0) for m in rag_matches)
 
             return json.dumps(data)
-            
-        return json.dumps({"dish_name": vision_info.get("dish_name", "Meal"), "total_macros": {"calories": 0, "protein": 0, "carbs": 0, "fat": 0}, "items_detected": items})
+
+        fallback_payload = self._build_fallback_payload(vision_info, rag_matches, items)
+        return json.dumps(fallback_payload)

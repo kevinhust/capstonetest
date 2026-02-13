@@ -9,6 +9,7 @@ import asyncio
 import logging
 import os
 import json
+from json import JSONDecoder
 import re
 from datetime import datetime, time
 from typing import Optional, List, Dict, Any
@@ -73,6 +74,7 @@ def get_user_profile(user_id: str) -> Dict[str, Any]:
                 "conditions": profile.get("restrictions", "").split(", ") if profile.get("restrictions") else [],
                 "activity": profile.get("activity", "Moderately Active"),
                 "diet": profile.get("diet", []).split(", ") if profile.get("diet") else [],
+                "preferences": profile.get("preferences_json") or {},
                 "meals": []
             }
             return _user_profiles_cache[user_id]
@@ -93,17 +95,38 @@ def save_user_profile(user_id: str, profile: Dict[str, Any]) -> bool:
         # Check if profile exists
         existing = profile_db.get_profile(user_id)
 
-        conditions = profile.get("conditions", [])
+        raw_conditions = profile.get("conditions", [])
+        conditions = raw_conditions if isinstance(raw_conditions, list) else [str(raw_conditions)]
+        raw_diet = profile.get("diet", [])
+        diet_list = raw_diet if isinstance(raw_diet, list) else [str(raw_diet)]
+
         restrictions_str = ", ".join(conditions) if conditions and "None" not in conditions else None
+        diet_str = ", ".join(diet_list) if diet_list and "None" not in diet_list else None
+        normalized_profile = {
+            "name": str(profile.get("name", "")),
+            "age": int(profile.get("age", 25)),
+            "gender": str(profile.get("gender", "Not specified")),
+            "height": float(profile.get("height", profile.get("height_cm", 170))),
+            "weight": float(profile.get("weight", profile.get("weight_kg", 70))),
+            "goal": str(profile.get("goal", "General Health")),
+            "conditions": conditions,
+            "activity": str(profile.get("activity", "Moderately Active")),
+            "diet": diet_list,
+            "preferences": profile.get("preferences") if isinstance(profile.get("preferences"), dict) else {},
+            "meals": profile.get("meals", []),
+        }
 
         profile_data = {
-            "id": user_id,
-            "full_name": profile.get("name", ""),
-            "age": int(profile.get("age", 25)),
-            "weight_kg": float(profile.get("weight", 70)),
-            "height_cm": float(profile.get("height", 170)),
-            "goal": profile.get("goal", "General Health"),
-            "restrictions": restrictions_str
+            "full_name": normalized_profile["name"],
+            "age": normalized_profile["age"],
+            "gender": normalized_profile["gender"],
+            "weight_kg": normalized_profile["weight"],
+            "height_cm": normalized_profile["height"],
+            "goal": normalized_profile["goal"],
+            "restrictions": restrictions_str,
+            "activity": normalized_profile["activity"],
+            "diet": diet_str,
+            "preferences_json": normalized_profile["preferences"],
         }
 
         if existing:
@@ -111,19 +134,20 @@ def save_user_profile(user_id: str, profile: Dict[str, Any]) -> bool:
         else:
             profile_db.create_profile(
                 discord_user_id=user_id,
-                full_name=profile.get("name", ""),
-                age=int(profile.get("age", 25)),
-                gender=profile.get("gender", "Not specified"),
-                height_cm=float(profile.get("height", 170)),
-                weight_kg=float(profile.get("weight", 70)),
-                goal=profile.get("goal", "General Health"),
+                full_name=normalized_profile["name"],
+                age=normalized_profile["age"],
+                gender=normalized_profile["gender"],
+                height_cm=normalized_profile["height"],
+                weight_kg=normalized_profile["weight"],
+                goal=normalized_profile["goal"],
                 conditions=conditions,
-                activity=profile.get("activity", "Moderately Active"),
-                diet=profile.get("diet", [])
+                activity=normalized_profile["activity"],
+                diet=diet_list,
+                preferences=normalized_profile["preferences"],
             )
 
         # Update cache
-        _user_profiles_cache[user_id] = profile
+        _user_profiles_cache[user_id] = normalized_profile
         logger.info(f"✅ Profile saved for user {user_id}")
         return True
 
@@ -179,18 +203,71 @@ def save_demo_profile(user_id: str, profile: Dict[str, Any]) -> bool:
     return save_user_profile(user_id, profile)
 
 
+def _normalize_gender(gender_raw: str) -> str:
+    """Normalize free-text gender input into a small stable set."""
+    value = (gender_raw or "").strip().lower()
+    if value in {"male", "man", "m"}:
+        return "Male"
+    if value in {"female", "woman", "f"}:
+        return "Female"
+    return "Other"
+
+
 class LogWorkoutView(discord.ui.View):
     """Refined Interactive buttons for Fitness Agent recommendations."""
-    def __init__(self, data: Dict[str, Any]):
+    def __init__(self, data: Dict[str, Any], user_id: str):
         super().__init__(timeout=None)
         self.data = data
+        self.user_id = user_id
         self.recommendations = data.get("recommendations", [])
+
+    def _primary_exercise(self) -> Dict[str, Any]:
+        return self.recommendations[0] if self.recommendations else {"name": "Exercise", "duration_min": 20, "kcal_estimate": 80, "reason": "General movement"}
 
     @discord.ui.button(label='Log Workout', style=discord.ButtonStyle.green, emoji='💪')
     async def log_workout(self, interaction: discord.Interaction, button: discord.ui.Button):
+        exercise = self._primary_exercise()
+        if profile_db:
+            try:
+                profile_db.log_workout_event(
+                    discord_user_id=self.user_id,
+                    exercise_name=exercise.get("name", "Exercise"),
+                    duration_min=int(exercise.get("duration_min", 20) or 20),
+                    kcal_estimate=float(exercise.get("kcal_estimate", 80) or 80),
+                    status="completed",
+                    source="fitness_button",
+                    raw_payload=exercise,
+                )
+            except Exception as e:
+                logger.warning(f"Failed to persist workout log: {e}")
+
         await interaction.response.send_message(
-            f"🎯 **Activity Logged!**\nGoal: {self.recommendations[0]['name'] if self.recommendations else 'Exercise'}\nKeep up the great work!",
+            f"🎯 **Activity Logged!**\nGoal: {exercise.get('name', 'Exercise')}\nKeep up the great work!",
             ephemeral=True
+        )
+
+    @discord.ui.button(label='Add To Routine', style=discord.ButtonStyle.blurple, emoji='📌')
+    async def add_to_routine(self, interaction: discord.Interaction, button: discord.ui.Button):
+        exercise = self._primary_exercise()
+        if profile_db:
+            try:
+                profile_db.add_routine_exercise(
+                    discord_user_id=self.user_id,
+                    exercise_name=exercise.get("name", "Exercise"),
+                    target_per_week=3,
+                    metadata=exercise,
+                )
+                await interaction.response.send_message(
+                    f"📌 Added **{exercise.get('name', 'Exercise')}** to your weekly routine.",
+                    ephemeral=True,
+                )
+                return
+            except Exception as e:
+                logger.warning(f"Failed to add routine item: {e}")
+
+        await interaction.response.send_message(
+            "⚠️ Routine tracking is temporarily unavailable (database not connected).",
+            ephemeral=True,
         )
 
     @discord.ui.button(label='More Options', style=discord.ButtonStyle.gray, emoji='🔄')
@@ -199,6 +276,45 @@ class LogWorkoutView(discord.ui.View):
             "🔄 Searching for alternative exercises that match your profile...",
             ephemeral=True
         )
+
+    @discord.ui.button(label='View Progress', style=discord.ButtonStyle.gray, emoji='📈')
+    async def view_progress(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if not profile_db:
+            await interaction.response.send_message(
+                "⚠️ Progress tracking is unavailable until Supabase is connected.",
+                ephemeral=True,
+            )
+            return
+
+        try:
+            progress = profile_db.get_workout_progress(self.user_id, days=7)
+            recent_recs = progress.get("recent_recommendations", []) or []
+            routine_exercises = progress.get("routine_exercises", []) or []
+
+            recommendation_line = "• Latest recommendations: **None yet**"
+            if recent_recs:
+                recommendation_line = f"• Latest recommendations: **{', '.join(recent_recs[:3])}**"
+
+            routine_line = f"• Current routine items: **{progress.get('routine_count', 0)}**"
+            if routine_exercises:
+                routine_line += f" ({', '.join(routine_exercises[:3])})"
+
+            msg = (
+                "📈 **7-Day Progress**\n"
+                f"• Suggested workouts: **{progress.get('recommended_count', 0)}**\n"
+                f"• Completed workouts: **{progress.get('completed_count', 0)}**\n"
+                f"• Total active minutes: **{progress.get('total_minutes', 0)}**\n"
+                f"• Estimated kcal burned: **{progress.get('total_kcal', 0):.0f}**\n"
+                f"{recommendation_line}\n"
+                f"{routine_line}"
+            )
+            await interaction.response.send_message(msg, ephemeral=True)
+        except Exception as e:
+            logger.warning(f"Failed to fetch workout progress: {e}")
+            await interaction.response.send_message(
+                "⚠️ Could not load progress right now. Try again in a moment.",
+                ephemeral=True,
+            )
 
     @discord.ui.button(label='Safety Info', style=discord.ButtonStyle.red, emoji='🛡️')
     async def safety_info(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -221,6 +337,7 @@ class DietSelectView(discord.ui.View):
             discord.SelectOption(label="No Restrictions", emoji="✅", value="None"),
             discord.SelectOption(label="Vegetarian", emoji="🥗", value="Vegetarian"),
             discord.SelectOption(label="Vegan", emoji="🌱", value="Vegan"),
+            discord.SelectOption(label="Halal", emoji="🕌", value="Halal"),
             discord.SelectOption(label="Keto", emoji="🥓", value="Keto"),
             discord.SelectOption(label="Gluten-Free", emoji="🌾", value="Gluten-Free"),
             discord.SelectOption(label="Dairy-Free", emoji="🥛", value="Dairy-Free"),
@@ -244,33 +361,19 @@ class DietSelectView(discord.ui.View):
         demo_user_id = user_id
 
         # Save to Supabase
-        save_user_profile(demo_user_id, _demo_user_profile[user_id])
+        saved = save_user_profile(demo_user_id, _demo_user_profile[user_id])
+        warning = ""
+        if not saved:
+            warning = "\n⚠️ We could not persist your profile to Supabase yet. Your inputs are kept in this session.\n"
 
-        profile = _demo_user_profile[user_id]
-        summary = (
-            "🎉 **Registration Complete!**\n"
-            "━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
-            "👤 **Profile Ready** (Persisted to Database)\n"
-            f"• Name: `{profile.get('name', 'N/A')}`\n"
-            f"• Age: `{profile.get('age', 'N/A')}` | Gender: `{profile.get('gender', 'N/A')}`\n"
-            f"• Metrics: `{profile.get('height', 'N/A')}cm / {profile.get('weight', 'N/A')}kg`\n"
-            f"• Goal: `{profile.get('goal', 'N/A')}`\n"
-            f"• Conditions: `{', '.join(profile.get('conditions', [])) or 'None'}`\n"
-            f"• Activity: `{profile.get('activity', 'N/A')}`\n"
-            f"• Diet: `{', '.join(profile.get('diet', [])) or 'None'}`\n"
-            "━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
-            "💾 **Your profile is saved!** Data persists across sessions.\n\n"
-            "✨ You can now ask health questions or upload food photos!"
+        await interaction.response.edit_message(
+            content=(
+                f"✅ Core profile captured.{warning}\n"
+                "**Step 6/6: Personalization Signals**\n"
+                "Add lifestyle preferences so recommendations can be highly personalized."
+            ),
+            view=PersonalizationSetupView(user_id),
         )
-        await interaction.response.edit_message(content=summary, view=None)
-
-        await interaction.client.change_presence(
-            activity=discord.Activity(
-                type=discord.ActivityType.listening,
-                name="[Demo Mode] " + DISCORD_ACTIVITY
-            )
-        )
-        logger.info(f"✅ Full Demo registration complete for {interaction.user.display_name}")
 
 
 class ActivitySelectView(discord.ui.View):
@@ -295,7 +398,7 @@ class ActivitySelectView(discord.ui.View):
         global _demo_user_profile
         _demo_user_profile[self.user_id]["activity"] = select.values[0]
         await interaction.response.edit_message(
-            content="**Step 5/5: Dietary Preferences**\nSelect any dietary restrictions or preferences:",
+            content="**Step 5/6: Dietary Preferences**\nSelect any dietary restrictions or preferences:",
             view=DietSelectView(self.user_id)
         )
 
@@ -324,7 +427,7 @@ class ConditionSelectView(discord.ui.View):
         global _demo_user_profile
         _demo_user_profile[self.user_id]["conditions"] = select.values if "None" not in select.values else []
         await interaction.response.edit_message(
-            content="**Step 4/5: Activity Level**\nHow active are you on a weekly basis?",
+            content="**Step 4/6: Activity Level**\nHow active are you on a weekly basis?",
             view=ActivitySelectView(self.user_id)
         )
 
@@ -349,12 +452,12 @@ class GoalSelectView(discord.ui.View):
         global _demo_user_profile
         _demo_user_profile[self.user_id]["goal"] = select.values[0]
         await interaction.response.edit_message(
-            content="**Step 3/5: Health Conditions**\n(Phase 5 Safety Integration) Select any conditions to enable safety filtering:",
+            content="**Step 3/6: Health Conditions**\n(Phase 5 Safety Integration) Select any conditions to enable safety filtering:",
             view=ConditionSelectView(self.user_id)
         )
 
 
-class HealthProfileModal(discord.ui.Modal, title='Step 1/5: Basic Information'):
+class HealthProfileModal(discord.ui.Modal, title='Step 1/6: Basic Information'):
     user_name = discord.ui.TextInput(label='Name', placeholder='Kevin Wang', min_length=2, max_length=50)
     age = discord.ui.TextInput(label='Age (18-100)', placeholder='35', min_length=1, max_length=3)
     gender = discord.ui.TextInput(label='Gender', placeholder='Male / Female', min_length=1, max_length=10)
@@ -365,17 +468,50 @@ class HealthProfileModal(discord.ui.Modal, title='Step 1/5: Basic Information'):
         global _demo_user_profile
         user_id = str(interaction.user.id)
 
+        try:
+            name = str(self.user_name.value).strip()
+            age = int(str(self.age.value).strip())
+            height = float(str(self.height.value).strip())
+            weight = float(str(self.weight.value).strip())
+            gender = _normalize_gender(str(self.gender.value))
+
+            if len(name) < 2:
+                return await interaction.response.send_message(
+                    "⚠️ Name must be at least 2 characters.",
+                    ephemeral=True,
+                )
+            if age < 13 or age > 100:
+                return await interaction.response.send_message(
+                    "⚠️ Age must be between 13 and 100.",
+                    ephemeral=True,
+                )
+            if height < 120 or height > 230:
+                return await interaction.response.send_message(
+                    "⚠️ Height must be between 120 and 230 cm.",
+                    ephemeral=True,
+                )
+            if weight < 30 or weight > 300:
+                return await interaction.response.send_message(
+                    "⚠️ Weight must be between 30 and 300 kg.",
+                    ephemeral=True,
+                )
+        except Exception:
+            return await interaction.response.send_message(
+                "⚠️ Please enter valid numeric values for age, height, and weight.",
+                ephemeral=True,
+            )
+
         # Initialize temporary demo profile in memory
         _demo_user_profile[user_id] = {
-            "name": self.user_name.value,
-            "age": int(self.age.value),
-            "gender": self.gender.value,
-            "height": float(self.height.value),
-            "weight": float(self.weight.value),
+            "name": name,
+            "age": age,
+            "gender": gender,
+            "height": height,
+            "weight": weight,
             "meals": []
         }
         await interaction.response.send_message(
-            "✅ Basic information saved.\n\n**Step 2/5: Health Goal**\nWhat is your primary objective?",
+            "✅ Basic information saved.\n\n**Step 2/6: Health Goal**\nWhat is your primary objective?",
             view=GoalSelectView(user_id)
         )
 
@@ -387,6 +523,142 @@ class StartSetupView(discord.ui.View):
     @discord.ui.button(label='Start Setup', style=discord.ButtonStyle.green, emoji='🚀')
     async def start_setup(self, interaction: discord.Interaction, button: discord.ui.Button):
         await interaction.response.send_modal(HealthProfileModal())
+
+
+class PersonalizationSetupView(discord.ui.View):
+    """Step 6: Additional profile signals for highly personalized recommendations."""
+
+    def __init__(self, user_id: str):
+        super().__init__(timeout=300)
+        self.user_id = user_id
+
+    @discord.ui.button(label='Add Personalization Details', style=discord.ButtonStyle.green, emoji='🧠')
+    async def add_personalization(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if str(interaction.user.id) != self.user_id:
+            return await interaction.response.send_message("This setup is for someone else!", ephemeral=True)
+
+        await interaction.response.send_modal(PersonalizationModal(self.user_id))
+
+
+class PersonalizationModal(discord.ui.Modal, title='Step 6/6: Personalization Signals'):
+    sleep_hours = discord.ui.TextInput(
+        label='Average Sleep Hours',
+        placeholder='7.5',
+        min_length=1,
+        max_length=4,
+    )
+    stress_level = discord.ui.TextInput(
+        label='Stress Level (1-10)',
+        placeholder='4',
+        min_length=1,
+        max_length=2,
+    )
+    workout_days_per_week = discord.ui.TextInput(
+        label='Workout Days Per Week (1-7)',
+        placeholder='4',
+        min_length=1,
+        max_length=1,
+    )
+    session_minutes = discord.ui.TextInput(
+        label='Preferred Session Minutes (10-180)',
+        placeholder='35',
+        min_length=2,
+        max_length=3,
+    )
+    motivation_style = discord.ui.TextInput(
+        label='Motivation Style (gentle/balanced/strict)',
+        placeholder='balanced',
+        min_length=4,
+        max_length=20,
+    )
+
+    def __init__(self, user_id: str):
+        super().__init__()
+        self.user_id = user_id
+
+    async def on_submit(self, interaction: discord.Interaction):
+        if str(interaction.user.id) != self.user_id:
+            return await interaction.response.send_message("This setup is for someone else!", ephemeral=True)
+
+        global demo_mode, _demo_user_profile, demo_user_id
+        user_id = str(interaction.user.id)
+
+        try:
+            sleep = float(str(self.sleep_hours.value).strip())
+            stress = int(str(self.stress_level.value).strip())
+            days = int(str(self.workout_days_per_week.value).strip())
+            minutes = int(str(self.session_minutes.value).strip())
+            motivation = str(self.motivation_style.value).strip().lower()
+
+            if sleep < 3 or sleep > 12:
+                return await interaction.response.send_message("⚠️ Sleep hours must be between 3 and 12.", ephemeral=True)
+            if stress < 1 or stress > 10:
+                return await interaction.response.send_message("⚠️ Stress level must be between 1 and 10.", ephemeral=True)
+            if days < 1 or days > 7:
+                return await interaction.response.send_message("⚠️ Workout days must be between 1 and 7.", ephemeral=True)
+            if minutes < 10 or minutes > 180:
+                return await interaction.response.send_message("⚠️ Session minutes must be between 10 and 180.", ephemeral=True)
+            if motivation not in {"gentle", "balanced", "strict", "data-driven"}:
+                return await interaction.response.send_message(
+                    "⚠️ Motivation style must be one of: gentle, balanced, strict, data-driven.",
+                    ephemeral=True,
+                )
+        except Exception:
+            return await interaction.response.send_message(
+                "⚠️ Invalid personalization inputs. Please provide valid numeric values.",
+                ephemeral=True,
+            )
+
+        if user_id not in _demo_user_profile:
+            _demo_user_profile[user_id] = {"meals": []}
+
+        _demo_user_profile[user_id]["preferences"] = {
+            "sleep_hours": sleep,
+            "stress_level": stress,
+            "workout_days_per_week": days,
+            "session_minutes": minutes,
+            "motivation_style": motivation,
+        }
+
+        demo_mode = True
+        demo_user_id = user_id
+        saved = save_user_profile(demo_user_id, _demo_user_profile[user_id])
+
+        profile = _demo_user_profile[user_id]
+        prefs = profile.get("preferences", {})
+        summary = (
+            "🎉 **Registration Complete!**\n"
+            "━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+            f"👤 **Profile Ready** ({'Persisted to Database' if saved else 'Saved In-Session'})\n"
+            f"• Name: `{profile.get('name', 'N/A')}`\n"
+            f"• Age: `{profile.get('age', 'N/A')}` | Gender: `{profile.get('gender', 'N/A')}`\n"
+            f"• Metrics: `{profile.get('height', 'N/A')}cm / {profile.get('weight', 'N/A')}kg`\n"
+            f"• Goal: `{profile.get('goal', 'N/A')}`\n"
+            f"• Conditions: `{', '.join(profile.get('conditions', [])) or 'None'}`\n"
+            f"• Activity: `{profile.get('activity', 'N/A')}`\n"
+            f"• Diet: `{', '.join(profile.get('diet', [])) or 'None'}`\n"
+            "🧠 **Personalization Signals**\n"
+            f"• Sleep: `{prefs.get('sleep_hours', 'N/A')}h` | Stress: `{prefs.get('stress_level', 'N/A')}/10`\n"
+            f"• Workout Days: `{prefs.get('workout_days_per_week', 'N/A')}` | Session: `{prefs.get('session_minutes', 'N/A')} min`\n"
+            f"• Motivation Style: `{prefs.get('motivation_style', 'N/A')}`\n"
+            "━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
+            + (
+                "💾 **Your profile is saved!** Data persists across sessions.\n\n"
+                if saved
+                else "⚠️ **Profile is currently only in session memory.** Please check Supabase config/schema.\n\n"
+            )
+            +
+            "✨ You can now ask health questions or upload food photos!"
+        )
+
+        await interaction.response.send_message(summary, ephemeral=True)
+        await interaction.client.change_presence(
+            activity=discord.Activity(
+                type=discord.ActivityType.listening,
+                name="[Demo Mode] " + DISCORD_ACTIVITY
+            )
+        )
+        logger.info(f"✅ Full Demo registration complete for {interaction.user.display_name}")
 
 
 class HealthButlerDiscordBot(Client):
@@ -450,9 +722,28 @@ class HealthButlerDiscordBot(Client):
     async def on_ready(self):
         logger.info(f"✅ Bot logged in as {self.user} (ID: {self.user.id})")
 
+    def _persist_chat_message(self, user_id: str, role: str, content: str) -> None:
+        """Persist chat message to Supabase with safe type normalization."""
+        global profile_db
+        if not profile_db:
+            return
+
+        try:
+            normalized_role = str(role or "user")
+            normalized_content = str(content or "")
+            profile_db.save_message(
+                discord_user_id=str(user_id),
+                role=normalized_role,
+                content=normalized_content,
+            )
+        except Exception as exc:
+            logger.warning(f"Failed to persist chat message: {exc}")
+
     async def on_message(self, message: discord.Message):
         global demo_mode, demo_user_id
         if message.author.bot or not message.guild: return
+
+        self._persist_chat_message(str(message.author.id), "user", message.content)
 
         # Helper for user_id in later scopes
         author_id = str(message.author.id)
@@ -468,18 +759,28 @@ class HealthButlerDiscordBot(Client):
 
         if demo_mode and str(message.author.id) != demo_user_id: return
 
-        # Load temporary demo profile from memory
+        # Load profile (prefer in-memory demo profile, fallback to persisted profile)
         global _demo_user_profile
-        user_profile = _demo_user_profile.get(str(message.author.id), {"meals": []})
+        persisted_profile = get_user_profile(author_id)
+        user_profile = _demo_user_profile.get(author_id) or persisted_profile or {"meals": []}
+        if "meals" not in user_profile:
+            user_profile["meals"] = []
 
         try:
             image_attachment = next((a for a in message.attachments if a.content_type and a.content_type.startswith('image/')), None)
             user_context = {
                 "user_id": str(message.author.id),
                 "username": message.author.display_name,
+                "name": user_profile.get("name", message.author.display_name),
+                "age": user_profile.get("age", 30),
+                "gender": user_profile.get("gender", "Not specified"),
+                "height": user_profile.get("height", user_profile.get("height_cm", 170)),
+                "weight": user_profile.get("weight", user_profile.get("weight_kg", 70)),
                 "conditions": user_profile.get("conditions", []),
                 "goal": user_profile.get("goal", "General Health"),
                 "activity": user_profile.get("activity", "Moderately Active"),
+                "diet": user_profile.get("diet", []),
+                "preferences": user_profile.get("preferences", {}),
                 "daily_intake": user_profile.get("meals", [])
             }
 
@@ -515,22 +816,8 @@ class HealthButlerDiscordBot(Client):
     async def _send_swarmed_response(self, channel, response: str, interaction_user_id: str, latest_meal: Optional[Dict[str, Any]] = None):
         try:
             clean_str = response.strip()
-            # Improved robust JSON extraction
-            json_pattern = re.compile(r'(\{[^{}]*(?:\{[^{}]*\}[^{}]*)*\})', re.DOTALL)
-            match = json_pattern.search(clean_str)
-            
-            data = None
-            if match:
-                try:
-                    data = json.loads(match.group(1))
-                except Exception as je:
-                    logger.debug(f"Inner JSON parse failed: {je}")
-            
-            if not data:
-                try:
-                    data = json.loads(clean_str)
-                except:
-                    pass
+            self._persist_chat_message(str(interaction_user_id), "assistant", clean_str)
+            data = self._extract_json_payload(clean_str)
 
             # If we have structured data, use the Unified Embed Design
             if isinstance(data, dict):
@@ -538,6 +825,10 @@ class HealthButlerDiscordBot(Client):
                 if "dish_name" in data and "total_macros" in data:
                     embed = self._build_nutrition_embed(data)
                     await channel.send(embed=embed)
+                elif "summary" in data and "recommendations" in data:
+                    embed = self._build_fitness_embed(data)
+                    await self._persist_fitness_plan(data, interaction_user_id)
+                    await channel.send(embed=embed, view=LogWorkoutView(data, interaction_user_id))
                 else:
                     # Fallback for other specialist agents or generic JSON
                     embed = Embed(title="💎 Health Butler Analysis", color=discord.Color.blue())
@@ -562,6 +853,152 @@ class HealthButlerDiscordBot(Client):
             logger.error(f"Response handling error: {e}")
             await channel.send(f"⚠️ Error processing response: {str(e)[:100]}")
 
+    def _extract_json_payload(self, text: str) -> Optional[Dict[str, Any]]:
+        """Extract the most relevant JSON object from model output text.
+
+        Priority:
+        1) Whole-string JSON object
+        2) Any embedded JSON object containing nutrition payload keys
+        3) First embedded JSON object
+        """
+        if not text:
+            return None
+
+        clean = text.strip()
+
+        if "```json" in clean:
+            clean = clean.split("```json")[-1].split("```")[0].strip()
+        elif "```" in clean:
+            clean = clean.split("```")[-1].split("```")[0].strip()
+
+        try:
+            payload = json.loads(clean)
+            if isinstance(payload, dict):
+                return payload
+        except Exception:
+            pass
+
+        decoder = JSONDecoder()
+        candidates: List[Dict[str, Any]] = []
+        for idx, ch in enumerate(clean):
+            if ch != "{":
+                continue
+            try:
+                obj, _ = decoder.raw_decode(clean, idx)
+                if isinstance(obj, dict):
+                    candidates.append(obj)
+            except Exception:
+                continue
+
+        if not candidates:
+            return None
+
+        preferred = next(
+            (
+                obj
+                for obj in candidates
+                if "dish_name" in obj and "total_macros" in obj
+            ),
+            None,
+        )
+        if preferred:
+            return preferred
+
+        return candidates[0]
+
+    def _to_float(self, value: Any, default: float = 0.0) -> float:
+        try:
+            return float(value)
+        except Exception:
+            return default
+
+    def _macros_from_items(self, data: Dict[str, Any]) -> Dict[str, float]:
+        totals = {"calories": 0.0, "protein": 0.0, "carbs": 0.0, "fat": 0.0}
+        for item in data.get("items_detected", []) or []:
+            if not isinstance(item, dict):
+                continue
+            macros = item.get("macros", {})
+            for key in totals:
+                totals[key] += self._to_float(macros.get(key, 0), 0.0)
+        return totals
+
+    def _calorie_breakdown_rows(self, data: Dict[str, Any]) -> List[Dict[str, Any]]:
+        """Return normalized calorie breakdown rows for embed display."""
+        normalized_rows: List[Dict[str, Any]] = []
+
+        def aggregate_rows(rows: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+            grouped: Dict[str, Dict[str, Any]] = {}
+            for row in rows:
+                item_name = str(row.get("item") or "Unknown").strip()
+                qty = max(1, int(self._to_float(row.get("quantity"), 1)))
+                c_total = self._to_float(row.get("calories_total"), 0.0)
+                if c_total <= 0:
+                    continue
+
+                if item_name not in grouped:
+                    grouped[item_name] = {
+                        "item": item_name,
+                        "quantity": 0,
+                        "calories_total": 0.0,
+                    }
+                grouped[item_name]["quantity"] += qty
+                grouped[item_name]["calories_total"] += c_total
+
+            output: List[Dict[str, Any]] = []
+            for row in grouped.values():
+                quantity = row["quantity"]
+                calories_total = round(row["calories_total"], 1)
+                output.append(
+                    {
+                        "item": row["item"],
+                        "quantity": quantity,
+                        "calories_each": round(calories_total / quantity, 1),
+                        "calories_total": calories_total,
+                    }
+                )
+
+            return output
+
+        source_rows = data.get("calorie_breakdown", []) or []
+        for row in source_rows:
+            if not isinstance(row, dict):
+                continue
+            name = str(row.get("item") or "Unknown").strip()
+            quantity = max(1, int(self._to_float(row.get("quantity"), 1)))
+            c_each = round(self._to_float(row.get("calories_each"), 0.0), 1)
+            c_total = round(self._to_float(row.get("calories_total"), 0.0), 1)
+            if c_total <= 0:
+                continue
+            normalized_rows.append(
+                {
+                    "item": name,
+                    "quantity": quantity,
+                    "calories_each": c_each if c_each > 0 else round(c_total / quantity, 1),
+                    "calories_total": c_total,
+                }
+            )
+
+        if normalized_rows:
+            return aggregate_rows(normalized_rows)
+
+        for item in data.get("items_detected", []) or []:
+            if not isinstance(item, dict):
+                continue
+            macros = item.get("macros", {}) or {}
+            item_total = round(self._to_float(macros.get("calories"), 0.0), 1)
+            if item_total <= 0:
+                continue
+            normalized_rows.append(
+                {
+                    "item": str(item.get("name") or "Unknown"),
+                    "quantity": 1,
+                    "calories_each": item_total,
+                    "calories_total": item_total,
+                }
+            )
+
+        return aggregate_rows(normalized_rows)
+
     def _build_nutrition_embed(self, data: Dict[str, Any]) -> Embed:
         """
         Build a premium, standardized nutrition embed based on user-provided design.
@@ -575,10 +1012,21 @@ class HealthButlerDiscordBot(Client):
         title = f"Nutrition Analysis: {dish} • {int(confidence*100)}% Confidence"
         embed = Embed(title=title, color=discord.Color.green())
 
-        cals = macros.get("calories", 0)
-        p = macros.get("protein", 0)
-        c = macros.get("carbs", 0)
-        f = macros.get("fat", 0)
+        cals = self._to_float(macros.get("calories", 0), 0.0)
+        p = self._to_float(macros.get("protein", 0), 0.0)
+        c = self._to_float(macros.get("carbs", 0), 0.0)
+        f = self._to_float(macros.get("fat", 0), 0.0)
+
+        if cals <= 0 and p <= 0 and c <= 0 and f <= 0:
+            recovered = self._macros_from_items(data)
+            if recovered["calories"] > 0:
+                cals, p, c, f = recovered["calories"], recovered["protein"], recovered["carbs"], recovered["fat"]
+                data["total_macros"] = {"calories": round(cals, 1), "protein": round(p, 1), "carbs": round(c, 1), "fat": round(f, 1)}
+
+        breakdown_rows = self._calorie_breakdown_rows(data)
+        if breakdown_rows and cals <= 0:
+            cals = round(sum(row.get("calories_total", 0.0) for row in breakdown_rows), 1)
+            data.setdefault("total_macros", {})["calories"] = cals
         
         embed.description = f"🔥 **{cals}** kcal | 🍖 **{p}g** P | 🍞 **{c}g** C | 🥑 **{f}g** F"
 
@@ -587,38 +1035,128 @@ class HealthButlerDiscordBot(Client):
             def get_bar(val):
                 pct = int((val / total_g) * 20)
                 return "█" * pct + "░" * (20 - pct)
+
+            def color_bar(val, marker: str):
+                pct = int((val / total_g) * 12)
+                return marker * pct + "⬛" * (12 - pct)
             
             p_pct = (p / total_g) * 100
             c_pct = (c / total_g) * 100
             f_pct = (f / total_g) * 100
             
             breakdown = (
-                f"🍖 **Protein** {p_pct:2.0f}% `{get_bar(p)}`\n"
-                f"🍞 **Carbs**   {c_pct:2.0f}% `{get_bar(c)}`\n"
-                f"🥑 **Fat**     {f_pct:2.0f}% `{get_bar(f)}`"
+                f"🍖 **Protein** {p_pct:2.0f}% • {round(p, 1)}g\n"
+                f"{color_bar(p, '🟦')}\n"
+                f"🍞 **Carbs** {c_pct:2.0f}% • {round(c, 1)}g\n"
+                f"{color_bar(c, '🟨')}\n"
+                f"🥑 **Fat** {f_pct:2.0f}% • {round(f, 1)}g\n"
+                f"{color_bar(f, '🟩')}"
             )
             embed.add_field(name="📊 Macros Breakdown", value=breakdown, inline=False)
 
-        details = [
-            f"• Calories: {cals} kcal",
-            f"• Protein: {p}g",
-            f"• Total Fat: {f}g (Sat: ~{dt.get('saturated_fat_g', '?')}g*)",
-            f"• Carbs: {c}g (Fiber: ~{dt.get('fiber_g', '?')}g*, Sugars: ~{dt.get('sugar_g', '?')}g*)",
-            f"• Sodium: ~{dt.get('sodium_mg', '?')}mg*"
-        ]
-        embed.add_field(name="📋 Detailed Nutrition", value="\n".join(details), inline=True)
+        if breakdown_rows:
+            detail_lines = []
+            for row in breakdown_rows[:6]:
+                qty = row.get("quantity", 1)
+                line = (
+                    f"• {row.get('item', 'Item')}: {row.get('calories_each', 0):.1f} kcal"
+                    f" × {qty} = **{row.get('calories_total', 0):.1f} kcal**"
+                )
+                detail_lines.append(line)
+
+            listed_total = sum(self._to_float(row.get("calories_total"), 0.0) for row in breakdown_rows)
+            detail_lines.append(f"**Overall Total: {listed_total:.1f} kcal**")
+            embed.add_field(name="🍽️ Calories by Item", value="\n".join(detail_lines), inline=False)
 
         ingredients = data.get("ingredients_with_portions", [])
-        if not ingredients: ingredients = data.get("items_detected", [])
-        
-        ing_list = "\n".join([f"• {i}" for i in ingredients[:6]]) if ingredients else "Not specified"
-        embed.add_field(name="🥗 Key Ingredients", value=ing_list, inline=True)
+        if not ingredients:
+            raw_items = data.get("items_detected", [])
+            normalized = []
+            for item in raw_items[:6]:
+                if isinstance(item, dict):
+                    name = item.get("name", "Unknown")
+                    portion = item.get("estimated_weight_grams")
+                    if portion:
+                        normalized.append(f"{name} (~{portion}g)")
+                    else:
+                        normalized.append(name)
+                else:
+                    normalized.append(str(item))
+            ingredients = normalized
 
-        insight = data.get("health_tip") or data.get("composition_analysis", "Maintain a balanced diet!")
+        ing_list = "\n".join([f"• {i}" for i in ingredients[:6]]) if ingredients else "Not specified"
+        embed.add_field(name="🥗 Key Ingredients", value=ing_list, inline=False)
+
+        insight = self._compose_health_insight(data, cals)
         embed.add_field(name="💡 Health Insight", value=insight, inline=False)
 
         embed.set_footer(text=f"Confidence: {stars} ({int(confidence*100)}%) • Anchored to USDA data + visual estimation")
         return embed
+
+    def _compose_health_insight(self, data: Dict[str, Any], calories: float) -> str:
+        """Generate a concise 1-3 sentence overview (food + workout + status)."""
+        base_tip = data.get("health_tip") or data.get("composition_analysis") or "Meal analyzed successfully."
+
+        if calories >= 700:
+            workout_sentence = "Workout suggestion: add 35-45 minutes of moderate cardio or a brisk walk."
+            status_sentence = f"Food and current status: this meal is about {int(calories)} kcal and is on the higher side, so keep your next meal lighter and protein-focused."
+        elif calories >= 350:
+            workout_sentence = "Workout suggestion: 20-30 minutes of activity helps keep daily balance."
+            status_sentence = f"Food and current status: this meal is about {int(calories)} kcal and fits a moderate intake range for most goals."
+        else:
+            workout_sentence = "Workout suggestion: a short 10-20 minute walk is enough for digestion and consistency."
+            status_sentence = f"Food and current status: this meal is about {int(calories)} kcal and is relatively light, leaving flexibility for later meals."
+
+        concise_base = base_tip.split(".")[0].strip()
+        tip_line = f"• {concise_base}." if concise_base else "• Meal analyzed successfully."
+        status_line = f"• {status_sentence}"
+        workout_line = f"• {workout_sentence}"
+        return "\n".join([tip_line, status_line, workout_line])
+
+    def _build_fitness_embed(self, data: Dict[str, Any]) -> Embed:
+        """Build fitness-specific embed for structured FitnessAgent output."""
+        embed = Embed(title="🏃 Fitness Coach Plan", color=discord.Color.blurple())
+        summary = data.get("summary", "Here is your fitness recommendation.")
+        embed.description = summary
+
+        recs = data.get("recommendations", []) or []
+        if recs:
+            rec_lines = []
+            for rec in recs[:4]:
+                rec_lines.append(
+                    f"• **{rec.get('name', 'Exercise')}** — {rec.get('duration_min', 20)} min, ~{rec.get('kcal_estimate', 80)} kcal\n"
+                    f"  {rec.get('reason', 'Suitable for your current status')}"
+                )
+            embed.add_field(name="🎯 Recommendations", value="\n".join(rec_lines), inline=False)
+
+        warnings = data.get("safety_warnings", []) or []
+        if warnings:
+            embed.add_field(name="🛡️ Safety", value="\n".join([f"• {w}" for w in warnings[:4]]), inline=False)
+
+        avoid = data.get("avoid", []) or []
+        if avoid:
+            embed.add_field(name="🚫 Avoid", value="\n".join([f"• {a}" for a in avoid[:4]]), inline=False)
+
+        embed.set_footer(text="Use 'Log Workout' to track completion")
+        return embed
+
+    async def _persist_fitness_plan(self, data: Dict[str, Any], user_id: str) -> None:
+        """Persist recommended workouts so plans are tracked in Supabase."""
+        if not profile_db:
+            return
+        try:
+            for rec in (data.get("recommendations", []) or [])[:5]:
+                profile_db.log_workout_event(
+                    discord_user_id=user_id,
+                    exercise_name=str(rec.get("name", "Exercise")),
+                    duration_min=int(self._to_float(rec.get("duration_min", 20), 20)),
+                    kcal_estimate=self._to_float(rec.get("kcal_estimate", 80), 80),
+                    status="recommended",
+                    source="fitness_agent",
+                    raw_payload=rec,
+                )
+        except Exception as e:
+            logger.warning(f"Failed to persist fitness plan: {e}")
 
     async def _send_daily_summary_embed(self, channel, user_id: str, latest_meal: Optional[Dict[str, Any]] = None):
         """Send a 'Today's Summary' embed as requested by user."""
@@ -665,10 +1203,9 @@ class HealthButlerDiscordBot(Client):
     async def _persist_meal_data(self, response: str, user_id: str) -> Optional[Dict[str, Any]]:
         """Extract and persist meal data - in-memory for demo, Supabase for real users."""
         try:
-            clean_str = response.strip()
-            if "```json" in clean_str: clean_str = clean_str.split("```json")[-1].split("```")[0].strip()
-            elif "```" in clean_str: clean_str = clean_str.split("```")[-1].split("```")[0].strip()
-            data = json.loads(clean_str)
+            data = self._extract_json_payload(response)
+            if not data:
+                return None
 
             if "dish_name" in data and "total_macros" in data:
                 m = data["total_macros"]
@@ -691,10 +1228,10 @@ class HealthButlerDiscordBot(Client):
                 elif profile_db:
                     from datetime import date
                     today = date.today()
-                    calories = m.get('calories', 0)
-                    protein = m.get('protein', 0)
-                    carbs = m.get('carbs', 0)
-                    fat = m.get('fat', 0)
+                    calories = float(m.get('calories', 0) or 0)
+                    protein = float(m.get('protein', 0) or 0)
+                    carbs = float(m.get('carbs', 0) or 0)
+                    fat = float(m.get('fat', 0) or 0)
 
                     # 1. Create or update daily summary log
                     profile_db.create_daily_log(
@@ -720,8 +1257,12 @@ class HealthButlerDiscordBot(Client):
                     if user_id in _user_profiles_cache:
                         _user_profiles_cache[user_id].setdefault("meals", []).append(meal_record)
 
+                return meal_record
+
         except Exception as e:
             logger.debug(f"Meal persist error: {e}")
+
+        return None
 
     async def _handle_demo_command(self, message):
         global demo_mode, demo_user_id, demo_user_profile
