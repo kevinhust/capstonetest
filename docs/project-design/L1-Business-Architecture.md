@@ -27,9 +27,10 @@
 
 | Metric | Target | Business Value |
 |--------|--------|----------------|
-| **Efficiency** | Reduce logging time by >50% (vs. text input) | Increases user retention/engagement |
-| **Trust** | >95% RAG citation accuracy | Establishes credibility in health domain |
-| **Latency** | <10s End-to-End Response | Mimics "human-like" interaction speed |
+| **Efficiency** | Reduce logging time by >70% | High retention via easy visual logging |
+| **Trust** | >98% Semantic Accuracy | Gemini-powered multimodal verification |
+| **Safety** | Zero Critical Errors | Safety RAG filtering for health conditions |
+| **Latency** | <5s for Initial Detection | Fast feedback via local YOLOv8 |
 
 ---
 
@@ -81,27 +82,24 @@ sequenceDiagram
         participant FitAg
     end
 
-    User->>Coord: 📸 Uploads Photo ("What's in this?")
+    User->>Coord: 📸 Uploads Photo ("Analyze this!")
     activate Coord
-    Coord->>NutAg: 🔄 Route Task (Image)
+    Coord->>NutAg: 🔄 Route Task (Image + Profile)
     activate NutAg
-    NutAg->>NutAg: 🤖 Recognize Food (YOLO26)
-    NutAg->>KB: 🔍 Retrieve Calorie/Macro Data
-    activate KB
-    KB-->>NutAg: 📄 Knowledge Chunks
-    deactivate KB
-    NutAg->>NutAg: 🧮 Calculate Totals
-    NutAg-->>Coord: ✅ Analysis Result + Initial Advice
+    NutAg->>Vision: 👁️ Hybrid Analysis
+    Vision->>Vision: 1. YOLO (Where?)
+    Vision->>Vision: 2. Gemini (What?)
+    NutAg->>KB: 🔍 Retrieve Exact Nutrition
+    NutAg-->>Coord: ✅ Verified Analysis
     deactivate NutAg
     
-    par Parallel Value Add
-        Coord->>FitAg: 💡 Request Calorie Burn Suggestion
-        activate FitAg
-        FitAg-->>Coord: 🚶 "Walk 30 mins to offset"
-        deactivate FitAg
-    end
+    Coord->>FitAg: 💡 Request Safe Exercises
+    activate FitAg
+    FitAg->>FitAg: 🛡️ Check Safety Protocols
+    FitAg-->>Coord: 🚶 "Swimming (Safe for Knee Injury)"
+    deactivate FitAg
 
-    Coord->>User: 💬 Consolidated Response (Macros + Advice)
+    Coord->>User: 💬 Consolidated Professional Advice
     deactivate Coord
 ```
 

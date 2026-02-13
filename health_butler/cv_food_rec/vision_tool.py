@@ -1,81 +1,100 @@
+"""Vision Tool for food detection using YOLOv8.
+
+Finds food items in images and returns bounding boxes for Phase 2 semantic analysis.
+Uses a Singleton pattern to ensure the YOLO model is loaded only once.
+"""
+
 import logging
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Optional
 from pathlib import Path
 from PIL import Image
-import torch
-from transformers import ViTImageProcessor, ViTForImageClassification
 
 # Setup logging
 logger = logging.getLogger(__name__)
 
 class VisionTool:
     """
-    Vision tool for food recognition using Vision Transformer (ViT).
-    Phase 2: Integration with HuggingFace ViT (nateraw/food-vit-101).
+    Vision tool for food detection.
+    
+    Pivot (Milestone 2): Uses YOLOv8 for object detection.
+    This tool is responsible for "where" the food is.
     """
-    
-    def __init__(self, model_name: str = "nateraw/food-vit-101"):
+    _instance = None
+    _model = None
+
+    def __new__(cls, *args, **kwargs):
+        if not cls._instance:
+            cls._instance = super(VisionTool, cls).__new__(cls)
+        return cls._instance
+
+    def __init__(self, model_name: str = "yolov8n.pt") -> None:
+        # Avoid re-initialization if already initialized
+        if hasattr(self, 'initialized'):
+            return
+        
         self.model_name = model_name
-        self._load_model()
+        self.initialized = True
+        logger.info("VisionTool initialized (Lazy Loading enabled)")
     
-    def _load_model(self):
-        """Load the ViT model and processor."""
+    def _load_model(self) -> None:
+        """Lazy load the YOLOv8 model on first use."""
+        if VisionTool._model is not None:
+            return
+
         try:
-            logger.info(f"Loading ViT model: {self.model_name}...")
-            self.processor = ViTImageProcessor.from_pretrained(self.model_name)
-            self.model = ViTForImageClassification.from_pretrained(self.model_name)
-            self.model.eval()
-            logger.info("ViT model loaded successfully.")
+            from ultralytics import YOLO
+            logger.info("🚀 Loading YOLOv8 model: %s...", self.model_name)
+            VisionTool._model = YOLO(self.model_name)
+            logger.info("✅ YOLOv8 model loaded successfully.")
         except Exception as e:
-            logger.warning(f"Failed to load {self.model_name}: {e}. Trying fallback 'google/vit-base-patch16-224'...")
-            try:
-                fallback = "google/vit-base-patch16-224"
-                self.processor = ViTImageProcessor.from_pretrained(fallback)
-                self.model = ViTForImageClassification.from_pretrained(fallback)
-                self.model.eval()
-                self.model_name = fallback
-                logger.info(f"Fallback model {fallback} loaded successfully.")
-            except Exception as e2:
-                logger.error(f"Critical: Failed to load fallback model: {e2}")
-                self.model = None
-            
+            logger.error("❌ Failed to load YOLOv8 model: %s. Vision features will be limited.", e)
+            VisionTool._model = None
+
     def detect_food(self, image_path: str) -> List[Dict[str, Any]]:
         """
-        Classify food items in the given image.
-        Returns a list containing the top prediction with label and confidence.
+        Detect food items using YOLOv8 and return bounding boxes.
         """
-        logger.info(f"Analyzing image: {image_path}")
+        self._load_model()
+        
+        logger.info("🔍 Analyzing image for objects: %s", image_path)
         image_path_obj = Path(image_path)
         
         if not image_path_obj.exists():
             return [{"error": "Image file not found"}]
 
-        if self.model is None:
+        if VisionTool._model is None:
             return [{"error": "Model not loaded"}]
 
         try:
-            image = Image.open(image_path).convert("RGB")
-            inputs = self.processor(images=image, return_tensors="pt")
+            # Run inference
+            results = VisionTool._model(image_path, verbose=False)
             
-            with torch.no_grad():
-                outputs = self.model(**inputs)
-                logits = outputs.logits
+            detections = []
+            if results and len(results) > 0:
+                result = results[0]
+                for box in result.boxes:
+                    # Filter for 'food' related classes or just take all for now 
+                    # as we rely on Gemini to filter semantics
+                    class_id = int(box.cls[0])
+                    label = result.names[class_id]
+                    confidence = float(box.conf[0])
+                    
+                    # Convert bbox to list [x1, y1, x2, y2]
+                    bbox = box.xyxy[0].tolist()
+                    
+                    detections.append({
+                        "label": label,
+                        "confidence": confidence,
+                        "bbox": bbox
+                    })
             
-            # Get predicted class
-            predicted_class_idx = logits.argmax(-1).item()
-            label = self.model.config.id2label[predicted_class_idx]
-            confidence = torch.nn.functional.softmax(logits, dim=-1)[0, predicted_class_idx].item()
-            
-            logger.info(f"Detected: {label} ({confidence:.2f})")
-            
-            return [{
-                "label": label,
-                "confidence": confidence,
-                "bbox": None  # ViT is classification only
-            }]
+            if not detections:
+                logger.info("⚠️ No objects detected in image.")
+                
+            return detections
             
         except Exception as e:
-            logger.error(f"Error during food detection: {e}")
+            logger.error("❌ Error during food detection: %s", e)
             return [{"error": str(e)}]
 
 # Standalone execution for testing
@@ -83,19 +102,10 @@ if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO)
     tool = VisionTool()
     
-    # Use a placeholder image if available, else warn
-    test_img = Path("data/raw/food-101/images/pizza/sample.jpg")
-    try:
-        if test_img.exists():
-            # Create a real dummy image if it's 0 bytes or just text
-            import numpy as np
-            if test_img.stat().st_size < 100: # It was a text file in Phase 1
-                 img = Image.fromarray(np.random.randint(0, 255, (224, 224, 3), dtype=np.uint8))
-                 img.save(test_img)
-                 
-            results = tool.detect_food(str(test_img))
-            print(results)
-        else:
-            print(f"Test image {test_img} not found.")
-    except Exception as e:
-        print(f"Error during test: {e}")
+    # Test with a dummy image or common paths
+    test_img = Path("data/raw/sample_food.jpg")
+    if test_img.exists():
+        results = tool.detect_food(str(test_img))
+        print(f"Results: {results}")
+    else:
+        print(f"Test image not found at {test_img}")

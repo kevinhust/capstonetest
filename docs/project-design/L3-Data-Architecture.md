@@ -14,11 +14,12 @@ Our system distinguishes between **Pattern Recognition** (done by pre-trained mo
 
 | Feature | Data Source | Technology | Update Freq |
 |---------|-------------|------------|-------------|
-| **Visual Detection** | Pre-trained Patterns | **YOLO26** (COCO + Synthetic Food-101) | Static (Build-time) |
-| **Nutritional Facts** | Trusted Database | **USDA Food Data** (RAG Retrieval) | Monthly (ETL) |
-| **User Context** | User Input | **Ephemeral Session** (RAM) | Real-time |
+| **Visual Detection** | Pre-trained Patterns | **YOLOv8** (Local Inference) | Build-time |
+| **Semantic Vision**| Visual Context | **Gemini 2.5 Flash** (Multimodal) | Real-time |
+| **Safety Protocols**| Structured Rules | **safety_protocols.json** | Static / Curated |
+| **User Context** | 5-Step Onboarding | **Ephemeral Session** (RAM/Discord) | Session-start |
 
-> **Addressing Source Feedback**: We do NOT rely on the LLM's internal knowledge for nutrition facts (which are prone to hallucination). We use the LLM only for reasoning, while facts are retrieved from the USDA database.
+> **Hybrid Intelligence Strategy**: We combine YOLO's high-speed local containment with Gemini's deep semantic reasoning. Safety is enforced by a secondary "Protocol Layer" (JSON-based) that acts as a hard boundary for LLM recommendations.
 
 ---
 
@@ -33,19 +34,20 @@ graph TB
     classDef runtime fill:#FFFFE0,stroke:#DAA520,stroke-width:2px,color:black,rx:5,ry:5;
     classDef model fill:#E6E6FA,stroke:#9370DB,stroke-width:2px,color:black,rx:5,ry:5;
 
-    subgraph "Knowledge Data (Public)"
-        NUT[Nutrition KB]:::know
-        FIT[Fitness KB]:::know
+    subgraph "Knowledge Data (Public & Curated)"
+        NUT[Nutrition / USDA]:::know
+        SAFE[Safety Protocols JSON]:::know
+        EX[Exercises DB JSON]:::know
     end
     
     subgraph "Runtime Data (Ephemeral)"
-        SES[Session Context]:::runtime
-        IMG[User Uploads]:::runtime
+        SES[User Profile Context]:::runtime
+        IMG[Temp Image Path]:::runtime
     end
     
     subgraph "Model Artifacts"
-        YOLO[YOLO26 Weights]:::model
-        IDX[FAISS Index]:::model
+        YOLO[YOLOv8 Weights]:::model
+        GEM[Gemini Client]:::model
     end
 ```
 
@@ -101,19 +103,31 @@ To ensure trusted data, we implement a strict ETL pipeline for the RAG Knowledge
 
 ---
 
-## 5. Knowledge Base Schema
+## 5. Knowledge & Context Schema
 
-### 5.1 Chunk Structure
+### 5.1 User Profile Context (Onboarding)
+```json
+{
+  "name": "Alex",
+  "age": 30,
+  "gender": "Male",
+  "height": 180,
+  "weight": 80,
+  "goal": "Gain Muscle",
+  "activity": "Very Active",
+  "conditions": ["Knee Injury"],
+  "dietary_prefs": ["High Protein"]
+}
+```
 
-```python
-@dataclass
-class KnowledgeChunk:
-    """Standardized Knowledge Unit"""
-    id: str
-    content: str          # "Broccoli: 34kcal/100g..."
-    source: str           # "USDA ID: 11090"
-    embedding: List[float] # 1024-dim
-    metadata: Dict[str, Any] # {"macros": {"p": 2.8, "c": 7, "f": 0.4}}
+### 5.2 Safety Protocol Schema
+```json
+{
+  "condition": "Hypertension",
+  "forbidden_patterns": ["high intensity interval", "heavy lifting"],
+  "recommended_categories": ["low impact cardio", "swimming"],
+  "critical_warning": "Avoid isometric exercises that spike blood pressure."
+}
 ```
 
 ---

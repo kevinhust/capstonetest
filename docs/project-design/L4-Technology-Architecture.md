@@ -10,14 +10,15 @@
 
 ## 1. Technology Stack (2026 Standards)
 
-### 1.1 Stack Summary
+### 1.1 Core Development Stack
 
-| Layer | Component | Technology | Rationale |
-|-------|-----------|------------|-----------|
-| **Frontend** | Web UI | **Streamlit** (v1.40+) | Fast iteration, Python native |
-| **Orchestration** | Agent Framework | **OpenAI Swarm** | Lightweight, stateless agent handoffs |
-| **Logic/Reasoning** | Primary LLM | **Gemini 2.5 Flash** | Low latency, multimodal native, cost-effective |
-| | Fallback LLM | **DeepSeek-V3** | High intelligence/cost ratio |
+| Category | Component | Selection | Rationale |
+|----------|-----------|-----------|-----------|
+| **LLM Interface** | Multimodal AI | **Gemini 2.5 Flash** | Native multimodal support, extremely fast and cost-effective. |
+| **CV Engine** | Object Detection | **YOLOv8n** | Industry standard for real-time edge-compatible detection. |
+| **Interface** | Bot Framework | **discord.py** | Seamless integration for professionals; supports rich modals/views. |
+| **Data Layer** | Vector DB | **ChromaDB** | Native Python support, excellent for embedded RAG workflows. |
+| **Runtime** | Containerization | **Docker (Python 3.12)** | Improved performance and modern library support. |
 | **Vision** | Object Classification | **ViT-Base** (HuggingFace) | High accuracy on Food-101, easy integration |
 | **Data** | Vector DB | **ChromaDB** (Local) | Metadata filtering support, easy setup |
 | | Embedding | **Sentence Transformers** | High quality semantic search |

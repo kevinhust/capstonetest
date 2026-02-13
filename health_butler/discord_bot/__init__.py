@@ -1,9 +1,5 @@
-"""
-Discord integration for Personal Health Butler AI.
+"""Personal Health Butler Discord Bot"""
 
-This package provides a Discord bot that:
-- restricts usage to allowlisted channels/users
-- requires onboarding (user profile) before fitness features
-- routes messages/images through Coordinator -> Nutrition/Fitness agents
-"""
+from health_butler.discord_bot.bot import HealthButlerDiscordBot
 
+__all__ = ["HealthButlerDiscordBot"]

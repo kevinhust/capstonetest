@@ -1,0 +1,53 @@
+# Docker ignore - optimize build context
+
+# Git
+.git
+.gitignore
+
+# Python cache
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+
+# Virtual environments
+venv/
+env/
+ENV/
+.venv/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Testing
+.pytest_cache/
+.coverage
+htmlcov/
+.tox/
+
+# Documentation
+docs/
+*.md
+
+# Archive and temp
+archive/
+*.tmp
+*.log
+
+# Large data files (models should be downloaded at runtime)
+data/
+*.db
+*.sqlite
+
+# Environment files
+.env
+.env.*
+!.env.example
+
+# CI/CD
+.github/
