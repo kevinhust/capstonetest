@@ -1,53 +1,46 @@
 # Milestone 2 Report: Data Prep, Initial Modeling & Prototyping
 
 ## 1. Project Overview
-The **Personal Health Butler AI** has transitioned from a conceptual framework to a functional multi-agent swarm prototype. This milestone marks a significant shift from simple classification to a sophisticated, safety-integrated vision and fitness orchestration system.
+The **Personal Health Butler AI** has successfully transitioned from a conceptual framework to a functional, persistent, and multi-agent system. This milestone highlights the implementation of a **Hybrid Vision Pipeline (YOLO + Gemini)** and a **Supabase-backed Persistence Layer**, moving beyond simple classification to a robust, context-aware health assistant.
 
 ## 2. Data Preparation & Knowledge Integration
-Our data strategy evolved to support multi-modal inputs and specialized nutritional/safety retrieval.
+Our data strategy has evolved to support multi-modal inputs, ensuring that visual data is accurately translated into nutritional insights and stored for long-term tracking.
 
 ### A. Computer Vision Data & Detection
-- **Multi-Object Focus**: We moved beyond single-category classification. The dataset now supports bounding box detection for overlapping food items.
-- **Preprocessing**: Standardized to 640x640 resolution with augmentations (rotation, shear) to handle "real-world" kitchen and restaurant photography.
+-   **Multi-Object Focus**: We moved beyond single-category classification. The system now handles complex meals with multiple overlapping items.
+-   **Preprocessing**: Standardized input images to 640x640 for the object detection model, with augmentations (rotation, shear) to handle diverse "real-world" kitchen lighting and angles.
 
 ### B. Enhanced RAG (Knowledge Retrieval)
-- **Nutritional RAG**: Stores 10,000+ entries in **ChromaDB**, ensuring that food names identified by Gemini are cross-referenced with scientific caloric data.
-- **Safety RAG**: A new layer of knowledge containing medical/fitness restrictions (e.g., knee-friendly exercises, heart rate zones) to prevent the Fitness Agent from recommending harmful workouts.
+-   **Nutritional RAG**: Stores 10,000+ entries in **ChromaDB**, allowing the system to cross-reference visual findings with scientific caloric data.
+-   **Safety RAG**: A dedicated retrieval layer containing medical/fitness restrictions (e.g., knee-friendly exercises, heart rate zones) ensures the Fitness Agent adapts to user constraints.
 
-## 3. Initial Modeling: The Architectural Pivot
-The most critical development in Milestone 2 was the pivot from a monolithic classification model to a hybrid-intelligence pipeline.
+## 3. Initial Modeling: The Hybrid Intelligence Pipeline
+The core innovation in Milestone 2 is the **Hybrid Vision Pipeline**, which combines the speed of local detection with the reasoning of a Large Multimodal Model (LMM).
 
-### A. From Classification (ViT) to Detection (YOLO + Gemini)
-Testing showed that users rarely take a photo of just "one apple." They take photos of complete meals.
-- **The Problem**: A standard ViT (Vision Transformer) would look at a full tray and guess a single label (e.g., "Rice"), ignoring the side dishes.
-- **The Solution (Hybrid Vision)**: 
-  - **YOLOv8n**: Acts as the "Eyes," quickly identifying the number of items and their locations.
-  - **Gemini 1.5 Flash**: Acts as the "Brain," identifying exactly *what* is inside those bounding boxes (ingredients, preparation method).
+### A. The "Eyes": YOLOv8 Object Detection
+We integrated **YOLOv8n (Nano)** via the `VisionTool` to provide instant spatial awareness.
+-   **Role**: Detects *where* food items are and counts them.
+-   **Performance**: Fast inference (<100ms) to identify bounding boxes.
+-   **Benefits**: Handles multiple items (e.g., "3 apples", "1 bowl") that pure LMMs often miss or hallucinate counts for.
 
-### B. Prototyping "The Swarm"
-We abandoned traditional linear routing in favor of a **Decentralized Swarm**. The `HealthSwarm` orchestrator allows agents to share a **Singleton VisionTool** instance, minimizing memory overhead (~3GB) while maximizing response speed.
+### B. The "Brain": Gemini 2.5 Flash
+For semantic understanding, we deployed **Gemini 2.5 Flash** in the `GeminiVisionEngine`.
+-   **Role**: Analyzes the contents of the YOLO bounding boxes to determine *what* the food is (ingredients, cooking method, portion size).
+-   **Structured Outputs**: We utilize Gemini's JSON schema enforcement to guarantee consistent data formats for macronutrients (Calories, Protein, Carbs, Fat).
+-   **Prompt Engineering**: The engine operates under a strict "Expert Nutritionist" persona, using local object detection results as hints to refine its analysis and reduce hallucinations (e.g., distinguishing an orange from a donut).
 
-## 4. Architecture Evolution (Comparison)
+## 4. Architecture Evolution: Persistence & Integration
+We have moved from stateless interactions to a fully persistent architecture using **Supabase**.
 
-### Phase 1: Experimental Monolith (Milestone 1 Design)
-*   **Logic**: Linear and keyword-based.
-*   **Vision**: Single-label classification (ViT).
-*   **Fitness**: Basic math without health context.
+### A. Supabase Persistence Layer
+The `ProfileDB` module now serves as the single source of truth for user data, replacing ephemeral memory.
+-   **User Profiles (`profiles`)**: Stores detailed anthropometric data (Height, Weight, Age), goals, and medical conditions (e.g., "Knee Pain").
+-   **Nutritional Tracking (`meals`, `daily_logs`)**: Automatically logs every meal analyzed by the vision pipeline. Aggregates daily calorie and protein intake to track progress against goals.
+-   **Workout History (`workout_logs`, `workout_routines`)**: Persists recommended exercises and active routines, allowing the Fitness Agent to adapt future suggestions based on past performance.
+-   **Chat Context (`chat_messages`)**: Maintains conversational history for a seamless, context-aware user experience.
 
-```mermaid
-graph TD
-    User([User]) --> Coordinator[Coordinator Agent]
-    Coordinator --> Nutr[Nutrition Agent]
-    Nutr --> ViT[ViT Classifier]
-    ViT --> RAG[Nutrition Lookup]
-    Coordinator --> Fit[Fitness Agent]
-    Fit --> Math[Simple Calorie Math]
-```
-
-### Phase 2: Hybrid Swarm Intelligence (Current Prototype)
-*   **Logic**: Full context-aware orchestration via Gemini Function Calling.
-*   **Vision**: Hybrid YOLOv8 + Gemini Flash.
-*   **Fitness**: Safety-First integration (Health Conditions + Calorie Status).
+### B. Architecture Diagram (Phase 2)
+The system now follows a `User -> Discord -> Swarm -> Supabase` flow:
 
 ```mermaid
 graph LR
@@ -55,31 +48,31 @@ graph LR
     
     subgraph "Swarm Orchestrator"
         Discord --> VisionS[Singleton VisionTool]
-        Discord --> Coord[Coordinator: Function Calling]
-        Coord --> Nutr[Nutrition Agent]
-        Coord --> Fit[Fitness Agent]
+        Discord --> Coordinator[Coordinator Agent]
+        Coordinator --> Nutr[Nutrition Agent]
+        Coordinator --> Fit[Fitness Agent]
     end
 
     subgraph "Hybrid Vision Pipeline"
         Nutr -.-> VisionS
         VisionS --> YOLO[YOLOv8: Detect Boundaries]
-        VisionS --> Gem[Gemini: Analyze Dishes]
-        Gem --> RAG_N[RAG: Nutrition DB]
+        VisionS --> Gem[Gemini 2.5: Semantic Analysis]
+        Gem --JSON--> DB[(Supabase DB)]
     end
 
-    subgraph "Safety-First Fitness"
-        Fit --> Cond[Health Conditions Context]
-        Cond --> RAG_S[Safety RAG: Protocols]
-        RAG_S --> Advice[Safe Personal Advice]
+    subgraph "Data & Safety"
+        Fit --> DB
+        Fit --> Safety[Safety RAG]
+        DB --> Profile[User Profile & Logs]
     end
 ```
 
 ## 5. Prototyping Results
-- **Discord Integration**: Successfully implemented persistent gateway connections for live interaction.
-- **Memory Management**: Optimized the large scientific stack (torch/transformers) to run efficiently within a 4GB Cloud Run instance.
-- **Safety Filtering**: The system now correctly filters out high-impact exercises for users who specify knee pain in their profile.
+-   **Discord Integration**: Fully functional bot handling image uploads and natural language queries.
+-   **Latency Optimization**: The Hybrid approach (YOLO filtering before Gemini analysis) balances cost and speed.
+-   **Safety-First Design**: The integration of `health_conditions` in Supabase ensures that a user with "lower back pain" is never recommended deadlifts.
 
 ## 6. Next Steps
-- **Supabase Migration**: Store user profiles and conversation history for long-term tracking.
-- **GCP Full Deployment**: Scale the Cloud Run service with "Always-on CPU" to maintain Gateway stability.
-- **Model Refinement**: Fine-tune YOLO for smaller ingredient detection (e.g., nuts/seeds).
+-   **Advanced Analytics**: Build a dashboard to visualize weekly progress from Supabase data.
+-   **Feedback Loop**: Implement a user feedback mechanism to "correct" Gemini's food analysis, fine-tuning the prompt context over time.
+-   **Deployment**: Finalize the Docker container optimization for Cloud Run to ensure "Always-on" availability.

@@ -1,10 +1,17 @@
 import logging
 import json
+import os
 import re
 import colorsys
 from typing import Optional, List, Dict, Any
+
+from dotenv import load_dotenv
+
+load_dotenv()  # ensure .env is loaded before any os.getenv / settings reads
+
 from src.agents.base_agent import BaseAgent
 from src.config import settings
+from google import genai
 from google.genai.types import GenerateContentConfig
 from PIL import Image, ImageStat
 from health_butler.cv_food_rec.vision_tool import VisionTool
@@ -66,6 +73,17 @@ CRITICAL RULES:
         self.rag = SimpleRagTool()
         # Backwards-compatible attribute name used by earlier phases/tests.
         self.rag_tool = self.rag
+
+        # Safety net: BaseAgent may leave self.client=None when it fails to read
+        # the API key (e.g. env var not yet loaded at import time).  Re-try here.
+        if self.client is None and "PYTEST_CURRENT_TEST" not in os.environ:
+            api_key = os.getenv("GOOGLE_API_KEY") or settings.GOOGLE_API_KEY
+            if api_key:
+                try:
+                    self.client = genai.Client(api_key=api_key)
+                    logger.info("[NutritionAgent] GenAI client initialized (safety-net).")
+                except Exception as exc:
+                    logger.error("[NutritionAgent] GenAI client safety-net init failed: %s", exc)
 
     def _extract_json(self, text: str) -> Optional[Dict[str, Any]]:
         """Robustly extract JSON from a string."""

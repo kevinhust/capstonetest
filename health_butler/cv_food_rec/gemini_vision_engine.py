@@ -8,6 +8,11 @@ import os
 import json
 import logging
 from typing import Dict, Any, Optional, List
+
+from dotenv import load_dotenv
+
+load_dotenv()  # ensure .env is loaded before os.getenv reads
+
 from google import genai
 from PIL import Image
 

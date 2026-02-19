@@ -5,25 +5,20 @@ services:
     env_file:
       - .env
     environment:
-      # Credentials can come from shell exports or .env
-      - DISCORD_TOKEN
-      - DISCORD_ALLOWED_CHANNEL_IDS
-      - DISCORD_ALLOWED_USER_IDS
-      - GOOGLE_API_KEY
-      - SUPABASE_URL
-      - SUPABASE_SERVICE_ROLE_KEY
-      - SUPABASE_KEY
-      # Non-secret runtime defaults (secrets come from .env via env_file)
+      # Explicitly map credentials from .env (bare keys like "- GOOGLE_API_KEY"
+      # override env_file with empty string when the host shell lacks that var).
+      - DISCORD_TOKEN=${DISCORD_TOKEN}
+      - DISCORD_ALLOWED_CHANNEL_IDS=${DISCORD_ALLOWED_CHANNEL_IDS}
+      - DISCORD_ALLOWED_USER_IDS=${DISCORD_ALLOWED_USER_IDS}
+      - GOOGLE_API_KEY=${GOOGLE_API_KEY}
+      - SUPABASE_URL=${SUPABASE_URL}
+      - SUPABASE_SERVICE_ROLE_KEY=${SUPABASE_SERVICE_ROLE_KEY}
+      - SUPABASE_KEY=${SUPABASE_KEY}
+      # Non-secret runtime defaults
       - DISCORD_ACTIVITY=${DISCORD_ACTIVITY:-Local_Docker_Testing}
       - DEBUG_MODE=${DEBUG_MODE:-false}
       - DEPLOY_ENV=${DEPLOY_ENV:-local}
       - PORT=8080
-      # Optional services (uncomment if using)
-      # - OPENAI_API_KEY=${OPENAI_API_KEY}
-      # - OPENAI_BASE_URL=${OPENAI_BASE_URL}
-      # - USDA_API_KEY=${USDA_API_KEY}
-      # - SUPABASE_URL=${SUPABASE_URL}
-      # - SUPABASE_KEY=${SUPABASE_KEY}
     ports:
       - "8085:8080"
     volumes:
