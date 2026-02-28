@@ -1,4 +1,3 @@
-
 # Python
 __pycache__/
 *.py[cod]
@@ -13,22 +12,28 @@ venv.bak/
 
 # Environment
 .DS_Store
+capstoneenv/
 
 # IDE
 .vscode/
 .idea/
 
-# Project Data (Large files)
-health_butler/data/chroma_db/
-health_butler/data/raw/food-101/
+# Project Data (Large files & Persistence)
+data/chroma_db/
+data/embeddings/
+data/raw/
+data/processed/
 *.sqlite3
+*.db
 *.bin
+test_meal.jpg
 
 # Antigravity
-artifacts/logs/
-artifacts/plans/
+artifacts/
 .antigravity/
 
 # Temp
 *.bak
 demo_cli.py
+test_output.txt
+archive/

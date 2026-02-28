@@ -1,5 +1,6 @@
 import sys
 import os
+import json
 import pytest
 
 # Add project root to python path
@@ -8,7 +9,7 @@ sys.path.append(project_root)
 
 pytest.importorskip("torch")
 
-from src.agents.nutrition_agent import NutritionAgent
+from agents.nutrition.nutrition_agent import NutritionAgent
 
 def test_nutrition_agent_flow():
     print("Testing Nutrition Agent Flow...")
@@ -20,16 +21,24 @@ def test_nutrition_agent_flow():
     
     print(f"Input: Image='{image_path}', Query='{query}'")
     
-    result = agent.analyze_meal(image_path, query)
+    context = [
+        {"type": "image_path", "content": image_path},
+        {"type": "user_context", "content": json.dumps({"goal": "build muscle"})}
+    ]
+    
+    result_str = agent.execute(query, context)
     
     print("\n--- Result ---")
-    print(result)
+    print(result_str)
     
-    # Simple assertions
-    assert "foods" in result
-    assert "advice" in result
-    assert len(result["foods"]) > 0
-    assert "building muscle" in result["advice"] or "good" in result["advice"] or "fit" in result["advice"] # Loose check on mock
+    # NutritionAgent.execute returns a JSON string
+    result = json.loads(result_str)
+    
+    # Assert actual response structure
+    assert "dish_name" in result
+    assert "total_macros" in result
+    assert "composition_analysis" in result
+    assert "health_tip" in result
     
     print("\n✅ Test Passed!")
 

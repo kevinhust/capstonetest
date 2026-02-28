@@ -1,7 +1,7 @@
 """Tests for per-item calorie breakdown generation and display normalization."""
 
-from health_butler.agents.nutrition.nutrition_agent import NutritionAgent
-from health_butler.discord_bot.bot import HealthButlerDiscordBot
+from agents.nutrition.nutrition_agent import NutritionAgent
+from discord_bot.bot import HealthButlerDiscordBot
 
 
 def test_nutrition_breakdown_aggregates_same_item_quantity() -> None:

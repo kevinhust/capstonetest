@@ -4,9 +4,9 @@ import json
 import os
 from unittest.mock import MagicMock, patch
 
-from health_butler.agents.fitness.fitness_agent import FitnessAgent
-from health_butler.discord_bot.router import build_delegations
-from health_butler.swarm import HealthSwarm
+from agents.fitness.fitness_agent import FitnessAgent
+from discord_bot.router import build_delegations
+from swarm import HealthSwarm
 
 
 @patch.dict(os.environ, {"PYTEST_CURRENT_TEST": "1"})

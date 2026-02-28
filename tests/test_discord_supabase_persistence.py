@@ -133,13 +133,13 @@ def _ensure_test_stubs() -> None:
 		sys.modules["discord.ext.commands"] = commands_module
 		sys.modules["discord.ext.tasks"] = tasks_module
 
-	# Only stub health_butler.swarm when it is genuinely unavailable.
+	# Only stub swarm when it is genuinely unavailable.
 	# Stubbing unconditionally (based on sys.modules) can break other tests that
 	# exercise the real HealthSwarm/MessageBus implementations.
 	try:
-		import health_butler.swarm  # noqa: F401
+		import swarm  # noqa: F401
 	except Exception:
-		swarm_module = types.ModuleType("health_butler.swarm")
+		swarm_module = types.ModuleType("swarm")
 
 		class _HealthSwarm:
 			def __init__(self, *args, **kwargs):
@@ -149,12 +149,12 @@ def _ensure_test_stubs() -> None:
 				return {"response": "{}", "delegations": [], "message_log": []}
 
 		swarm_module.HealthSwarm = _HealthSwarm
-		sys.modules["health_butler.swarm"] = swarm_module
+		sys.modules["swarm"] = swarm_module
 
 	try:
 		import supabase  # noqa: F401
 	except Exception:
-		profile_db_module = types.ModuleType("health_butler.discord_bot.profile_db")
+		profile_db_module = types.ModuleType("discord_bot.profile_db")
 
 		class _ProfileDB:
 			pass
@@ -164,7 +164,7 @@ def _ensure_test_stubs() -> None:
 
 		profile_db_module.ProfileDB = _ProfileDB
 		profile_db_module.get_profile_db = _get_profile_db
-		sys.modules["health_butler.discord_bot.profile_db"] = profile_db_module
+		sys.modules["discord_bot.profile_db"] = profile_db_module
 
 	try:
 		import aiohttp  # noqa: F401
@@ -204,7 +204,7 @@ def _ensure_test_stubs() -> None:
 
 _ensure_test_stubs()
 
-from health_butler.discord_bot import bot as discord_bot
+from discord_bot import bot as discord_bot
 
 
 def test_save_user_profile_create_writes_typed_profile_fields() -> None:

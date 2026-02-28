@@ -3,7 +3,7 @@ from types import SimpleNamespace
 from unittest.mock import MagicMock
 
 
-from health_butler.discord_bot import bot as discord_bot
+from discord_bot import bot as discord_bot
 
 
 def test_apply_serving_multiplier_scales_macros_and_breakdown() -> None:

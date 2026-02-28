@@ -1,7 +1,7 @@
 
 import pytest
 from unittest.mock import MagicMock, patch
-from health_butler.agents.fitness.fitness_agent import FitnessAgent
+from agents.fitness.fitness_agent import FitnessAgent
 
 @pytest.fixture
 def fitness_agent():

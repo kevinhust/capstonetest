@@ -39,7 +39,14 @@ COPY --from=builder /install /usr/local
 ENV PATH=/usr/local/bin:$PATH
 
 # Copy application code
-COPY health_butler/ ./health_butler/
+COPY agents/ ./agents/
+COPY coordinator/ ./coordinator/
+COPY cv_food_rec/ ./cv_food_rec/
+COPY data/ ./data/
+COPY data_rag/ ./data_rag/
+COPY discord_bot/ ./discord_bot/
+COPY scripts/ ./scripts/
+COPY notebooks/ ./notebooks/
 COPY src/ ./src/
 
 # Create directories for image processing and data persistence
@@ -59,4 +66,4 @@ HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
 EXPOSE 8080
 
 # Run Discord Bot with health check
-CMD ["python", "-m", "health_butler.discord_bot.bot"]
+CMD ["python", "-m", "discord_bot.bot"]

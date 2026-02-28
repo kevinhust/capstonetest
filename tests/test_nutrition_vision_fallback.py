@@ -12,7 +12,7 @@ from typing import Any, Dict, List, Optional
 import pytest
 from unittest.mock import patch
 
-from health_butler.agents.nutrition.nutrition_agent import NutritionAgent
+from agents.nutrition.nutrition_agent import NutritionAgent
 
 
 class _StubVisionTool:

@@ -13,23 +13,17 @@
 This workspace is divided into two distinct areas:
 
 ```
-├── health_butler/           # 🍎 PRODUCT_ROOT: The core application functionality
-│   ├── agents/              # - Agent definitions (Coordinator, Nutrition, Fitness)
-│   ├── tools/               # - Capabilities (ViT Vision, RAG Engine)
-│   ├── scripts/             # - Data ingestion and setup scripts
-│   ├── app.py               # - Streamlit UI Entrypoint
-│   └── README.md            # - Product Specific Documentation
-│
-├── src/                     # 🛠️ SCAFFOLD_ROOT: Shared utilities & base classes
-│   └── agents/              # - BaseAgent, RouterAgent generic logic
-│
-├── openspec/                # 📋 SPEC_ROOT: Requirements & Change Management
-│   ├── specs/               # - Functional requirements (Foundation, Prototype)
-│   └── changes/             # - Proposed and archived changes
-│
-├── docs/                    # 📚 DOCS: Architecture (L1-L4), Research, and Milestones
-│
-└── tests/                   # ✅ TEST: Integration and Unit tests
+├── agents/          # specialist agents (nutrition, fitness)
+├── coordinator/     # main router and logic
+├── cv_food_rec/      # Computer Vision food recognition
+├── data/            # Persistence (SQLite, JSON, Embeddings)
+├── data_rag/        # RAG Logic and Tools
+├── discord_bot/     # Discord Transport and Bot implementation
+├── scripts/         # Ingestion and setup scripts
+├── src/             # Core base classes from scaffolding
+├── tests/           # Comprehensive test suite
+├── Dockerfile       # Cloud Run deployment
+└── README.md        # This file
 ```
 
 ---
@@ -47,11 +41,11 @@ pip install -r requirements.txt
 ```
 
 ### 2.2 Running the App
-The **Phase 2 Prototype** interface is built with Streamlit.
+The application currently runs as a Discord Bot via `discord_bot/bot.py`.
 ```bash
-streamlit run health_butler/app.py
+python -m discord_bot.bot
 ```
-> **Note**: This launches the UI at `http://localhost:8501`.
+> **Note**: Ensure your `.env` contains the required Discord Token and Google API Key.
 
 ---
 
@@ -61,24 +55,24 @@ streamlit run health_butler/app.py
 We strictly track requirements via OpenSpec.
 1.  **Define**: Create a proposal in `openspec/changes/<feature-name>/proposal.md`.
 2.  **Plan**: Define tasks in `openspec/changes/<feature-name>/tasks.md`.
-3.  **Implement**: Write code in `health_butler/`.
+3.  **Implement**: Write code in root.
 4.  **Archive**: Run `openspec archive <feature-name>` to finalize.
 
 ### 3.2 Adding Agents
--   Create new agents in `health_butler/agents/`.
+-   Create new agents in `agents/`.
 -   Inherit from `src.agents.base_agent.BaseAgent`.
 
 ### 3.3 Adding Tools
--   Create tool classes in `health_butler/tools/`.
+-   Create tool modules in root or appropriate subdirectories.
 -   Ensure they return standard dict-based outputs `{"status": "...", "data": ...}`.
 
 ---
 
-## 4. Tech Stack (Phase 2)
--   **Orchestration**: OpenAI Swarm (Stateless Handoffs)
--   **Vision**: Vision Transformer (ViT-Base) using HuggingFace
--   **RAG**: ChromaDB + SentenceTransformers
--   **UI**: Streamlit
+## 4. Tech Stack (Phase 8)
+-   **Orchestration**: Google GenAI Structured Routing
+-   **Vision**: Gemini 2.5 Flash via `google.genai` SDK (w/ YOLO hints)
+-   **RAG**: SimpleRagTool for JSON-based safety filtering
+-   **UI**: Discord Bot with 5-step Profile Onboarding
 
 ---
 

@@ -35,7 +35,7 @@ def test_supabase_live_persistence_smoke() -> None:
     8) Cleanup all inserted rows
     """
     pytest.importorskip("supabase")
-    from health_butler.discord_bot.profile_db import get_profile_db
+    from discord_bot.profile_db import get_profile_db
 
     db = get_profile_db()
     test_user_id = f"it-smoke-{uuid.uuid4().hex[:12]}"

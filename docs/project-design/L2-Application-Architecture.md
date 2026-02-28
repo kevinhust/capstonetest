@@ -45,12 +45,12 @@ graph TB
 
     User[User]:::user
     
-    subgraph "Dockerized Swarm Cluster"
+    subgraph "Dockerized Cloud Run Cluster"
         direction TB
-        UI["Discord Bot Interface<br/>(discord.py)"]:::ui
-        Coord["Coordinator Agent<br/>(Gemini Routing)"]:::logic
-        Vision["Vision Singleton<br/>(YOLOv8 + Gemini Engine)"]:::logic
-        NutSvc["Nutrition Agent<br/>(Hybrid Vision + RAG)"]:::logic
+        UI["Discord Bot Gateway<br/>(discord.py)"]:::ui
+        Coord["Coordinator Agent<br/>(Google GenAI Routing)"]:::logic
+        Vision["Vision Engine<br/>(Gemini 2.5 Flash + YOLOv8)"]:::logic
+        NutSvc["Nutrition Agent<br/>(Gemini Analysis + RAG)"]:::logic
         FitSvc["Fitness Agent<br/>(Safety-First + BMR)"]:::logic
         
         UI -->|Events| Coord
@@ -59,7 +59,7 @@ graph TB
         NutSvc -->|Shared| Vision
     end
     
-    VDB[("ChromaDB / Vector Index")]:::db
+    VDB[("JSON Data / Simple RAG")]:::db
     NutSvc --> VDB
     FitSvc --> VDB
 ```
@@ -72,10 +72,10 @@ graph TB
 
 | Agent | Responsibility | Key Tech | Status |
 |---------|----------------|----------|--------|
-| **Discord Bot** | Multi-modal entry point, Onboarding | discord.py | Deployed |
-| **Coordinator** | Task Decomposition, LLM Routing | Google GenAI | High Fidelity |
-| **Nutrition Agent**| Food Identity & Macro Breakdown | YOLOv8n, Gemini Flash | Hybrid Implemented |
-| **Fitness Agent** | Safety-filtered coaching | Enhanced RAG, MSJ BMR | Context-Aware |
+| **Discord Bot** | Multi-modal entry point, Onboarding | discord.py | 5-Step Demo |
+| **Coordinator** | Task Routing, Structured output | Google GenAI | Function Calling |
+| **Nutrition Agent**| Food Identity & Macro Breakdown | Gemini 2.5 Flash | High Fidelity |
+| **Fitness Agent** | Safety-filtered coaching | Simple RAG, MSJ BMR | Context-Aware |
 
 ### 2.2 Component: Hybrid Vision System
 **The core "Eye" of the system, shared via Singleton pattern.**
@@ -97,7 +97,7 @@ graph TB
 
 | Tier | Model | Use Case | Justification |
 |------|-------|----------|---------------|
-| **Primary** | **Gemini 2.5 Flash** | General Reasoning, Synthesis | Low cost, high speed, multimodal native |
+| **Primary** | **Gemini 2.5 Flash** | General Reasoning, Vision | Fast, reliable via google.genai |
 | **Fallback** | **DeepSeek-V3 / GLM-4** | Complex reasoning (if needed) | Open weight / Cost effective |
 | **Embedding** | **e5-large-v2** | Knowledge Retrieval | Best-in-class open embedding |
 
@@ -112,18 +112,18 @@ graph TB
 ## 4. State Management
 
 ### 4.1 Implementation
-- **Session State**: Managed in-memory via Streamlit Session State (ephemeral).
-- **Conversation Memory**: `LangChain.memory.ConversationBufferWindowMemory` (k=5 rounds).
+- **Session State**: Managed via Discord Bot Context (temporary memory) and SQLite for Profiles.
+- **Conversation Memory**: In-memory list passed to Agents per session.
 
 ### 4.2 Data Flow
 
-1. **User Upload** -> UI stores in RAM.
-2. UI calls **Coordinator** with inputs.
-3. Coordinator maintains short-term conversational context.
-4. Coordinator calls **Nutrition Agent**.
-5. Nutrition Agent runs **YOLO** (stateless).
-6. Result returns to UI for display.
-7. **No persistent DB** for user data (Privacy by Design).
+1. **User Upload** -> Discord Bot saves to temp storage.
+2. Bot calls **Coordinator** with inputs.
+3. Coordinator maps internal states and maintains conversational context.
+4. Coordinator delegates to **Nutrition Agent**.
+5. Nutrition Agent runs **Gemini Vision Engine** with YOLO heuristics.
+6. Result returns to Discord Channel as embed.
+7. **No persistent DB** for user messages, but a local SQLite profiles DB creates demo accounts.
 
 ---
 
@@ -149,8 +149,9 @@ services:
 ```
 
 **Scalability Strategy**:
-- Cloud Run automatically scales to 0 when unused (Cost saving).
-- Stateless design allows horizontal scaling if demo traffic spikes.
+- Cloud Run `CPU Always Allocated` to persist Discord Websocket connections.
+- Cloud Run `min-instances 1` ensures the bot doesn't scale to 0 and disconnect.
+- Architecture allows Discord Gateway Sharding if user base expands significantly.
 
 ---
 
