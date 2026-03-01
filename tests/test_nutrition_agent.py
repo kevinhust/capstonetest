@@ -9,7 +9,7 @@ sys.path.append(project_root)
 
 pytest.importorskip("torch")
 
-from agents.nutrition.nutrition_agent import NutritionAgent
+from src.agents.nutrition.nutrition_agent import NutritionAgent
 
 def test_nutrition_agent_flow():
     print("Testing Nutrition Agent Flow...")

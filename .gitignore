@@ -37,3 +37,20 @@ artifacts/
 demo_cli.py
 test_output.txt
 archive/
+
+# Injected by Global AI-SDD
+
+# Global AI-SDD Ignore Rules
+.claude/
+*.claude_history
+.cline/
+.task-master-ai/
+# Python
+__pycache__/
+*.pyc
+venv/
+.env/
+# OS
+.DS_Store
+# IDE
+.vscode/

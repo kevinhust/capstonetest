@@ -4,8 +4,8 @@ import json
 import os
 from unittest.mock import MagicMock, patch
 
-from agents.fitness.fitness_agent import FitnessAgent
-from discord_bot.router import build_delegations
+from src.agents.fitness.fitness_agent import FitnessAgent
+from src.discord_bot.router import build_delegations
 from swarm import HealthSwarm
 
 

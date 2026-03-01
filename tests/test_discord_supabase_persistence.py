@@ -204,7 +204,7 @@ def _ensure_test_stubs() -> None:
 
 _ensure_test_stubs()
 
-from discord_bot import bot as discord_bot
+from src.discord_bot import bot as discord_bot
 
 
 def test_save_user_profile_create_writes_typed_profile_fields() -> None:
