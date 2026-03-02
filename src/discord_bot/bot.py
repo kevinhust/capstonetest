@@ -18,7 +18,7 @@ from discord.ext import tasks
 from datetime import datetime, time
 from src.swarm import HealthSwarm
 from src.discord_bot.embed_builder import HealthButlerEmbed
-from src.discord_bot.views import RegistrationViewA, OnboardingGreetingView
+from src.discord_bot.views import RegistrationViewA, OnboardingGreetingView, MealLogView
 from src.agents.engagement.engagement_agent import EngagementAgent
 from src.agents.analytics.analytics_agent import AnalyticsAgent
 from src.discord_bot.profile_db import get_profile_db
