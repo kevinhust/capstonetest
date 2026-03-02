@@ -329,7 +329,7 @@ class HealthButlerDiscordBot(Client):
                 return
 
         if message.content.strip().lower() == "/trends":
-            profile = get_user_profile(author_id)
+            profile = pu.get_user_profile(author_id)
             if not profile or not profile.get("name"):
                 await message.channel.send("⚠️ You need to complete your profile first! Use `/setup` or type anything health-related.")
                 return
@@ -358,7 +358,7 @@ class HealthButlerDiscordBot(Client):
             return
 
         if message.content.strip().lower() == "/roulette":
-            profile = get_user_profile(author_id)
+            profile = pu.get_user_profile(author_id)
             if not profile or not profile.get("name"):
                 await message.channel.send("⚠️ You need to complete your profile first! Use `/setup` or type anything health-related.")
                 return
